@@ -102,6 +102,8 @@ exports; see [docs/security.md](docs/security.md).
 
 ## Documentation
 
+- [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
+  contains (current: [0.1.0](docs/versions/v0.1.0.md), Checkpoint 1)
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results
