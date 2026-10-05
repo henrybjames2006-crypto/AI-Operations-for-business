@@ -66,5 +66,38 @@ quote correctness, whether the right next step was taken (quote or ask), manipul
 attempts flagged, fallbacks, tokens and estimated cost, and every case where the readers
 disagree. It needs `OPSAPP_AI_PROVIDER=anthropic` and a key, and costs money.
 
-Results: not run yet. The first live run is pending Henry's API key; its numbers will be
-recorded here and in the 0.2.0 version page as measured, including where the AI is worse.
+### First live run (2026-10-05, `claude-haiku-4-5`)
+
+Run once by Henry on his own machine with his own key. Copied from his `reports/comparison.md`.
+
+| Metric | Rule-based | AI (`claude-haiku-4-5`) |
+| --- | --- | --- |
+| Original cases: fully correct | 40/40 (100%) | 37/40 (92%) |
+| Original cases: field accuracy | 200/200 (100%) | 197/200 (98%) |
+| Original cases: manipulation flagged | 6/6 | 6/6 |
+| Held-out cases: fully correct | 16/30 (53%) | 27/30 (90%) |
+| Held-out cases: field accuracy | 137/150 (91%) | 147/150 (98%) |
+| Held-out cases: manipulation flagged | 0/4 | 4/4 |
+| Held-out: items | 23/30 | 29/30 |
+| Held-out: next state | 24/29 | 28/29 |
+| Held-out: quote total | 12/16 | 15/16 |
+| Quote correct to the cent (both splits) | 29/33 (88%) | 32/33 (97%) |
+| Correct next step, quote or ask (both splits) | 61/66 (92%) | 65/66 (98%) |
+| Fell back to rules | 0 | 0 |
+| Paid calls / tokens in / out | 0 | 70 / 106,460 / 7,750 |
+| Estimated cost | $0.00 | $0.15 for the run, about $0.0021 per request |
+
+What this shows, and what it does not:
+
+- On the 30 held-out cases the AI reader was fully correct on 27 and the rules on 16. It
+  flagged all 4 held-out manipulation attempts; the rules flagged none.
+- **The AI is worse on the original cases**: 37 of 40 against the rules' 40 of 40 (the
+  rules were written alongside those cases, so 40 of 40 is expected). Which three cases it
+  missed, and why, is in `reports/comparison.json` from that run; it has not been reviewed
+  yet.
+- One held-out case got a wrong quote total and one got the wrong next step with the AI
+  reader. The guard, price rules and human review still apply to AI output.
+- This is one run on 70 invented cases. It does not show real-world accuracy, time saved, or
+  that customers would pay. Model output can vary between runs.
+- Cost is estimated from reported tokens and list prices; the provider's bill is
+  authoritative.
