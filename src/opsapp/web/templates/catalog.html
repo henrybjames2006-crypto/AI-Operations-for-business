@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Catalog and pricing{% endblock %}
+{% block content %}
+<h1>Service catalog and pricing</h1>
+<p class="muted">Quotes use only the approved pricing version in effect. Every quote stores the version it used, so later price changes never alter an existing quote.</p>
+<div class="panel">
+  <h2>Services</h2>
+  <table><tr><th>SKU</th><th>Service</th><th>Unit</th><th>Quantity step</th><th>On site</th><th>Description</th></tr>
+  {% for i in items %}<tr><td><code>{{ i.sku }}</code></td><td>{{ i.name }}</td><td>{{ i.unit }}</td><td>{{ i.quantity_step }}</td><td>{{ 'yes' if i.onsite else 'no' }}</td><td class="small">{{ i.description }}</td></tr>{% endfor %}
+  </table>
+</div>
+{% for v in versions %}
+<div class="panel">
+  <h2>Pricing version {{ v.pv.version_no }} <span class="badge {% if v.pv.status == 'approved' %}s-completed{% elif v.pv.status == 'draft' %}s-needs_clarification{% endif %}">{{ v.pv.status }}</span></h2>
+  <p class="small muted">{{ v.pv.notes }} Effective from {{ v.pv.effective_from|dt }}.</p>
+  <table><tr><th>SKU</th><th class="num">Unit price</th><th class="num">Min</th><th class="num">Max per quote</th></tr>
+  {% for item, e in v.entries %}<tr><td><code>{{ item.sku }}</code> {{ item.name }}</td><td class="num">{{ e.unit_price|usd }}</td><td class="num">{{ e.min_qty }}</td><td class="num">{{ e.max_qty }}</td></tr>{% endfor %}
+  </table>
+  <h3>Rules (applied in this order)</h3>
+  <ul>{% for r in v.pv.rules %}<li>
+    {% if r.kind == 'volume_tier' %}Volume tier: {{ r.percent_off }}% off {{ r.sku }} at {{ r.min_qty }} or more
+    {% elif r.kind == 'minimum_charge' %}Minimum charge: ${{ r.amount }} for items (after tiers)
+    {% elif r.kind == 'trip_fee' %}{{ r.label }}: ${{ r.amount }} once per quote with on-site work
+    {% endif %}</li>{% endfor %}
+    <li>Rounding: each line to cents, half up. Tax: not calculated.</li></ul>
+  {% if v.pv.status == 'draft' and can_manage %}
+  <form method="post" action="/catalog/pricing/{{ v.pv.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="secondary">Approve this pricing version</button></form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

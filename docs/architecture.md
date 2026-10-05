@@ -1,0 +1,114 @@
+# Architecture (Checkpoint 1)
+
+One Python package, `opsapp`, run as two local processes that share one SQLite file:
+
+- **Web app** (`python -m opsapp serve`): FastAPI with server-rendered Jinja2 pages. Plain HTML
+  forms, no JavaScript. Binds to 127.0.0.1 only. (The plan mentioned HTMX; it turned out to
+  be unnecessary and was dropped.)
+- **Dispatcher** (`python -m opsapp dispatch`, or the Simulation page button): executes
+  approved actions from the outbox through simulated adapters.
+
+```
+src/opsapp/
+  domain/       pure rules: money, pricing, states, roles, hashing, scheduling, errors
+  ai/           extraction contract (schema, port), deterministic mock, output guard
+  adapters/     action adapter port + simulated email and calendar with fault injection
+  persistence/  SQLAlchemy models, engine/sessions, Alembic migrations, backup/restore
+  workflow/     WorkflowService (all use cases), audit chain, catalog snapshots
+  dispatch/     outbox dispatcher: leasing, retries, timeouts, reconciliation
+  web/          routes, view models, templates, samples
+  evals/        synthetic cases and the evaluation runner
+  verify.py     stdlib-only independent quote recalculation
+```
+
+The web layer calls `WorkflowService` only; it never changes rows directly. Domain modules
+import nothing from the database or web layers.
+
+## Workflow states
+
+Every change goes through `check_transition` (`domain/states.py`). Refused moves raise and
+are written to the audit log as `action_refused`.
+
+| From | Allowed next states |
+| --- | --- |
+| Received | Needs clarification, Draft ready, Escalated, Canceled |
+| Needs clarification | Draft ready, Escalated, Canceled |
+| Draft ready | Awaiting approval, Needs clarification, Canceled |
+| Awaiting approval | Approved, Rejected, Draft ready (edited), Canceled |
+| Approved | Executing, Draft ready (edited before execution), Canceled |
+| Executing | Completed, Failed, Escalated |
+| Failed | Executing (retry), Escalated, Canceled |
+| Escalated | Needs clarification, Draft ready, Executing, Completed, Canceled |
+| Rejected | Draft ready (revise), Canceled |
+| Completed, Canceled | (terminal) |
+
+Changes from the written plan, found while building: **Approved → Draft ready** (an edit after
+approval but before execution voids the approval), **Failed → Canceled**, and
+**Escalated → Completed** (a person confirms the action did happen).
+
+## Request reading
+
+`ai/mock.py` splits the text into clauses and matches catalog keywords and numbers (digits
+and number words). It also flags instruction-like text ("ignore previous instructions",
+"to the assistant", "skip the approval", discount or price demands). Its output is a
+Pydantic `ExtractionOutput`. `ai/guard.py` then drops anything that is not a known SKU,
+whose evidence quote is not in the original text, or whose quantity or timeframe is invalid.
+The extractor sees customer names and the catalog, never prices.
+
+Customer matching is deterministic: exact sender domain, then exact name or alias in the
+text. Partial matches only narrow the options in a "which customer?" question. Each fact in
+the working scope records its source: Stated, Inferred, From records, or Operator.
+
+## Pricing
+
+`domain/pricing.py` is pure and uses `Decimal` throughout; floats are rejected. Order:
+
+1. Line items: quantity × unit price from the approved pricing version, each line rounded
+   to cents (half up).
+2. Volume tier: percentage discount on a SKU at or above a quantity (5% off workstation
+   installs at 10 or more).
+3. Minimum charge: if items total less than the minimum ($250.00), a top-up line.
+4. Trip fee: one per quote when any on-site service is present ($75.00).
+
+The total is the sum of rounded lines. Tax is not calculated. Each quote version stores a
+snapshot of the pricing version it used, the inputs, every rule result (applied or not, and
+why), and a content hash. `verify.py` recomputes a stored quote using only the standard
+library, as a cross-check.
+
+## Approval
+
+Submitting creates the proposed actions (simulated quote email, simulated schedule
+proposal) with their exact payloads. The approval stores `subject_hash` = SHA-256 of the
+quote version id, its content hash, and each action's payload hash. Approving with any
+other hash is refused as stale. Any edit voids existing approvals. The preparer and
+submitter cannot approve or reject. Optimistic locking (`state_version`) stops two people
+acting on the same version at once.
+
+## Execution
+
+Approving writes outbox rows in the same transaction. The dispatcher:
+
+- claims the next due row with a 120 s lease and records each attempt;
+- calls the adapter inside a timeout;
+- on failure, retries with backoff up to `OPSAPP_MAX_ATTEMPTS` (3), then marks the workflow
+  Failed;
+- on timeout or lost response, the outcome is **uncertain**: it looks the operation up by
+  idempotency key. Found → succeeded; not found → send again with the same key; unknown →
+  Escalated for a person to decide;
+- on restart, any action left in progress is reconciled the same way before anything is
+  resent.
+
+Actions run in order; the schedule proposal runs only after the quote email succeeded.
+
+## Data
+
+SQLite in WAL mode with foreign keys on. Money is stored as decimal strings, times as UTC
+ISO strings, IDs as sortable random strings with an entity prefix (`wf_`, `quo_`, ...).
+Writes use `BEGIN IMMEDIATE` so concurrent writers wait instead of failing mid-transaction;
+pages read through a separate read-only session factory. Schema changes go through Alembic
+(`python -m opsapp db upgrade`); a test checks the migrated schema equals the models.
+
+## Audit
+
+Every event is appended to a per-tenant hash chain: each row stores the hash of the previous
+row plus its own content. `python -m opsapp audit verify` and the Audit log page recompute it.

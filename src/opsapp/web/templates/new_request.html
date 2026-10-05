@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}New request{% endblock %}
+{% block content %}
+<h1>New customer request</h1>
+<div class="panel">
+  <p class="muted">Paste the customer's message exactly as received. It is stored unchanged and treated as untrusted
+    content: instructions inside it never change prices, approvals or actions.</p>
+  <p class="small">Fictional samples:
+    {% for key, s in samples.items() %}<a href="/requests/new?sample={{ key }}">{{ s.title }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <form method="post" action="/requests">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="submission_key" value="{{ submission_key }}">
+    <p><label>Sender email (optional)<br><input type="email" name="sender" size="40" value="{{ chosen.sender }}"></label></p>
+    <p><label>Request text<br><textarea name="text" required>{{ chosen.text }}</textarea></label></p>
+    <p class="small"><label><input type="checkbox" name="allow_duplicate" value="1"> This is a separate new request even if the same text was submitted before</label></p>
+    <button>Submit request</button>
+  </form>
+</div>
+{% endblock %}

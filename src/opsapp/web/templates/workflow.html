@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% macro src(text) -%}
+  {%- if not text -%}<span class="tag">unknown</span>
+  {%- elif text.startswith('Stated') -%}<span class="tag stated">{{ text }}</span>
+  {%- elif text.startswith('Inferred') -%}<span class="tag inferred">{{ text }}</span>
+  {%- elif text.startswith('From records') -%}<span class="tag">{{ text }}</span>
+  {%- else -%}<span class="tag operator">{{ text }}</span>{%- endif -%}
+{%- endmacro %}
+{% block title %}{{ label }} · {{ customer.name if customer else 'New request' }}{% endblock %}
+{% block content %}
+<h1>{{ customer.name if customer else 'Unidentified customer' }} <span class="badge s-{{ state.value }}">{{ label }}</span></h1>
+<p class="muted">{{ status_text }} <span class="small">Workflow <code>{{ wf.id }}</code> · opened {{ wf.opened_at|dt }} ·
+  <a href="/workflows/{{ wf.id }}/export.json">export JSON</a></span></p>
+<div class="next"><strong>What happens next:</strong> {{ next_step }}</div>
+
+{% if open_exceptions %}
+<div class="panel" style="border-color:#f5c2bd">
+  <h2>Needs attention</h2>
+  {% for e in open_exceptions %}<div class="msg error"><strong>{{ e.kind|replace('_',' ')|capitalize }}:</strong> {{ e.detail }}</div>{% endfor %}
+  {% if can.resolve %}
+  <form method="post" action="/workflows/{{ wf.id }}/resolve">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><label>Decision<br><select name="resolution">
+      {% if live_actions|selectattr('status','in',['uncertain','escalated'])|list %}
+      <option value="confirmed_done">I confirmed it DID happen: mark done</option>
+      <option value="confirmed_not_done_retry">I confirmed it did NOT happen: send again (same idempotency key)</option>
+      {% else %}
+      <option value="return_to_clarification">Return to clarification (nothing has run)</option>
+      {% endif %}
+    </select></label></p>
+    <p><label>What you checked or decided (required)<br><input name="note" size="70" required></label></p>
+    <button>Record decision</button>
+  </form>
+  {% endif %}
+  {% if can.retry %}
+  <form method="post" action="/workflows/{{ wf.id }}/retry" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="note" size="50" placeholder="Why it is safe to retry now">
+    <button>Retry failed action</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="grid">
+<div class="panel">
+  <h2>What was requested</h2>
+  <p class="small muted">From {{ req.sender or 'unknown sender' }} · received {{ req.received_at|dt }} by {{ users[req.received_by].display_name }} · stored unchanged</p>
+  <pre>{{ req.raw_text }}</pre>
+  <p class="hash">SHA-256 {{ req.raw_sha256 }}</p>
+</div>
+
+<div class="panel">
+  <h2>What the system understood</h2>
+  <table>
+    <tr><th>Customer</th><td>{{ customer.name if customer else '—' }}<br>{{ src(scope.customer_source) }}</td></tr>
+    <tr><th>Site</th><td>{% if site %}{{ site.label }}, {{ site.address }}{% else %}—{% endif %}<br>{{ src(scope.site_source) }}</td></tr>
+    <tr><th>Quote recipient</th><td>{{ scope.recipient or '—' }}<br>{{ src(scope.recipient_source) }}</td></tr>
+    <tr><th>Timeframe</th><td>{{ timeframe_text(scope.timeframe) }}{% if scope.timeframe_text %} <span class="tag stated">Stated: “{{ scope.timeframe_text }}”</span>{% endif %}</td></tr>
+  </table>
+  <h3>Services</h3>
+  <table>
+    <tr><th>Service</th><th class="num">Qty</th><th>Basis</th></tr>
+    {% for i in scope['items'] %}
+    <tr {% if i.removed %}class="muted"{% endif %}><td><code>{{ i.sku }}</code>{% if i.removed %} (removed){% endif %}</td>
+      <td class="num">{{ i.quantity or '?' }}</td>
+      <td class="small">{% if i.source == 'operator' %}<span class="tag operator">Operator entered</span>{% elif i.quantity_text %}<span class="tag stated">Stated: “{{ i.quantity_text }}”</span>{% else %}<span class="tag inferred">Quantity not stated</span>{% endif %}
+        {% if i.evidence %}<div class="muted">Matched text: “{{ i.evidence }}”</div>{% endif %}</td></tr>
+    {% endfor %}
+    {% for u in scope.unsupported %}
+    <tr><td colspan="2">Unmatched: “{{ u.text }}”</td><td class="small">{{ u.status }}</td></tr>
+    {% endfor %}
+  </table>
+  {% for f in scope.flags %}<p class="flag small">⚠ {{ f }}</p>{% endfor %}
+  {% for n in scope.notes %}<p class="small muted">Note: {{ n }}</p>{% endfor %}
+  {% if extraction %}
+  <p class="small muted">Read by <code>{{ extraction.adapter }}/{{ extraction.model_id }}</code> (schema v{{ extraction.schema_version }}),
+    {{ extraction.latency_ms }} ms. The extractor only proposes; customer matching, prices and approvals are decided by fixed rules.
+    {% for u in usage %} AI cost: {{ u.est_cost_usd|usd }}.{% endfor %}</p>
+  {% endif %}
+</div>
+</div>
+
+{% if questions %}
+<div class="panel">
+  <h2>What remains uncertain</h2>
+  {% for q in questions %}
+  {% if q.answer is none and not q.superseded %}
+  <div class="question">
+    <strong>{{ q.question }}</strong>
+    {% if can.answer %}
+    <form method="post" action="/workflows/{{ wf.id }}/answer/{{ q.id }}" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ wf.state_version }}">
+      {% if q.kind in ['choose_customer', 'choose_site', 'unsupported'] %}
+        <select name="answer">{% for o in q.options %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}</select>
+      {% elif q.kind == 'add_item' %}
+        <select name="answer">{% for o in q.options %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}<option value="escalate">None of these: escalate</option></select>
+        <input name="quantity" size="6" placeholder="Qty">
+      {% else %}
+        <input name="answer" size="10" placeholder="Number">
+      {% endif %}
+      <button>Save answer</button>
+    </form>
+    {% else %}<div class="small muted">An operator must answer this.</div>{% endif %}
+  </div>
+  {% elif q.answer is not none %}
+  <div class="question done small">{{ q.question }}<br><strong>Answer:</strong> {{ q.answer }} <span class="muted">({{ users[q.answered_by].display_name }}, {{ q.answered_at|dt }})</span></div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if quote %}
+<div class="panel">
+  <h2>Quote version {{ quote.version_no }} <span class="muted small">prepared by {{ users[quote.prepared_by].display_name }} · pricing version {{ pv_numbers[quote.pricing_version_id] }} · {{ quote.currency }}</span></h2>
+  <table>
+    <tr><th>Line</th><th class="num">Qty</th><th class="num">Unit price</th><th>Calculation</th><th class="num">Amount</th></tr>
+    {% for ln in quote.calculation['lines'] %}
+    <tr><td>{{ ln.description }} <span class="small muted">{{ ln.sku }}</span></td><td class="num">{{ ln.quantity }}</td>
+      <td class="num">{{ ln.unit_price|usd }}</td>
+      <td class="small">{{ ln.calculation }}</td><td class="num">{{ ln.amount|usd }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td colspan="4">Total ({{ quote.currency }}, tax not calculated)</td><td class="num">{{ quote.total|usd }}</td></tr>
+  </table>
+  <h3>Rules checked</h3>
+  <ul class="small">{% for r in quote.calculation['rules'] %}<li>{{ '✓ Applied' if r.applied else '– Not applied' }}: {{ r.kind|replace('_',' ') }}. {{ r.explanation }}</li>{% endfor %}
+    <li>Rounding: each line rounded to cents, half up; total is the sum of rounded lines.</li></ul>
+  <h3>Assumptions and terms (from catalog records)</h3>
+  <ul class="small">{% for a in quote.assumptions %}<li>{{ a }}</li>{% endfor %}</ul>
+  <p class="hash">Version hash {{ quote.content_hash }}</p>
+
+  {% if can.edit %}
+  <details>
+    <summary>Edit quote (creates a new version{% if state.value in ['awaiting_approval','approved'] %} and voids the current approval{% endif %})</summary>
+    <form method="post" action="/workflows/{{ wf.id }}/edit">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ wf.state_version }}">
+      <input type="hidden" name="customer_id" value="{{ scope.customer_id }}">
+      <table>
+        <tr><th>Service</th><th>Quantity</th></tr>
+        {% set active = scope['items']|rejectattr('removed')|list %}
+        {% for n in range(active|length + 2) %}
+        <tr><td><select name="sku_{{ n }}"><option value="">—</option>
+          {% for sku, name, unit in catalog %}<option value="{{ sku }}" {% if n < active|length and active[n].sku == sku %}selected{% endif %}>{{ sku }}: {{ name }} (per {{ unit }})</option>{% endfor %}</select></td>
+          <td><input name="qty_{{ n }}" size="6" value="{{ active[n].quantity if n < active|length else '' }}"></td></tr>
+        {% endfor %}
+      </table>
+      <p><label>Site <select name="site_id">{% for x in customer_sites %}<option value="{{ x.id }}" {% if x.id == scope.site_id %}selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
+        <label>Recipient <input type="email" name="recipient" value="{{ scope.recipient }}" size="32"></label>
+        <label>Timeframe <select name="timeframe"><option value="">Not stated</option>{% for t in timeframes %}<option value="{{ t }}" {% if t == scope.timeframe %}selected{% endif %}>{{ timeframe_text(t) }}</option>{% endfor %}
+          {% if scope.timeframe and scope.timeframe.startswith('date:') %}<option value="{{ scope.timeframe }}" selected>{{ timeframe_text(scope.timeframe) }}</option>{% endif %}</select></label></p>
+      <p><label>Reason for the change <input name="reason" size="50"></label></p>
+      <button class="secondary">Save as new version</button>
+    </form>
+  </details>
+  {% endif %}
+  {% if versions|length > 1 %}
+  <details><summary>Earlier versions ({{ versions|length - 1 }})</summary>
+    <table>{% for v in versions[1:] %}<tr><td>v{{ v.version_no }}</td><td class="num">{{ v.total|usd }}</td><td class="small">{{ v.change_reason }}</td><td class="small muted">{{ users[v.prepared_by].display_name }}, {{ v.created_at|dt }}</td></tr>{% endfor %}</table>
+  </details>
+  {% endif %}
+  {% if can.submit %}
+  <form method="post" action="/workflows/{{ wf.id }}/submit" style="margin-top:12px">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ wf.state_version }}">
+    <button>Submit for approval</button>
+  </form>
+  {% endif %}
+  {% if can.revise %}
+  <form method="post" action="/workflows/{{ wf.id }}/revise" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Revise quote</button></form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if actions %}
+<div class="panel">
+  <h2>Proposed actions <span class="badge sim">SIMULATED</span></h2>
+  {% for a in actions %}
+  <div class="simbox" {% if a.status == 'voided' %}style="opacity:.55"{% endif %}>
+    <div class="row"><strong>{{ a.sequence }}. {{ action_labels[a.kind] }}</strong>
+      <span class="badge {% if a.status == 'succeeded' %}s-completed{% elif a.status in ['failed','escalated','uncertain'] %}s-failed{% endif %}">{{ a.status }}</span>
+      <span class="small muted">for quote version {{ (versions|selectattr('id','equalto',a.quote_version_id)|first).version_no }}</span></div>
+    {% if a.kind == 'send_quote' %}
+      <div class="small">To <strong>{{ a.payload.to }}</strong> · Subject: {{ a.payload.subject }}</div>
+      <details><summary class="small">Message body</summary><pre class="small">{{ a.payload.body }}</pre></details>
+    {% else %}
+      <div class="small">Proposed times at {{ a.payload.site }} (availability NOT checked):
+        {% for sl in a.payload.slots %}<code>{{ sl[:16]|replace('T',' ') }}</code> {% endfor %}<br><span class="muted">{{ a.payload.basis }}</span></div>
+    {% endif %}
+    <div class="hash">Idempotency key {{ a.idempotency_key }}</div>
+    {% if attempts[a.id] %}
+    <table class="small"><tr><th>#</th><th>Kind</th><th>Outcome</th><th>Detail</th><th>When</th></tr>
+      {% for t in attempts[a.id] %}<tr><td>{{ t.attempt_no }}</td><td>{{ 'status check' if t.kind == 'reconcile' else 'send' }}</td><td>{{ t.outcome }}</td><td>{{ t.error or t.external_ref or '' }}</td><td>{{ t.started_at|dt }}</td></tr>{% endfor %}</table>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if can.approve or approvals %}
+<div class="panel">
+  <h2>Approval</h2>
+  {% if can.approve %}
+    {% if own_work %}
+      <div class="msg warn">You prepared or submitted this version, so you cannot approve or reject it. Another approver must.</div>
+    {% else %}
+      <p>You are approving <strong>quote version {{ quote.version_no }}</strong> for <strong>{{ quote.total|usd }}</strong> and the {{ live_actions|length }} simulated actions above, exactly as shown.</p>
+      <form method="post" action="/workflows/{{ wf.id }}/approve" class="row">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="subject_hash" value="{{ subject_hash }}">
+        <input name="note" size="40" placeholder="Note (optional)"><button class="ok">Approve this version</button>
+      </form>
+      <form method="post" action="/workflows/{{ wf.id }}/reject" class="row">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="subject_hash" value="{{ subject_hash }}">
+        <input name="reason" size="40" placeholder="Reason (required to reject)"><button class="danger">Reject</button>
+      </form>
+    {% endif %}
+  {% endif %}
+  {% for ap in approvals %}
+  <p class="small">{{ ap.decision|capitalize }} by <strong>{{ users[ap.approver_id].display_name }}</strong> at {{ ap.decided_at|dt }}
+    for quote version {{ (versions|selectattr('id','equalto',ap.quote_version_id)|first).version_no }}{% if ap.reason %}: “{{ ap.reason }}”{% endif %}
+    {% if ap.invalidated_at %}<span class="flag">· Voided {{ ap.invalidated_at|dt }}: {{ ap.invalidated_reason }}</span>{% endif %}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if can.cancel %}
+<details class="panel"><summary>Cancel this workflow</summary>
+  <p class="small">Canceling stops anything that has not run yet. It does <strong>not</strong> undo actions that already happened; those stay listed in the history.</p>
+  <form method="post" action="/workflows/{{ wf.id }}/cancel" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" size="50" placeholder="Reason (required)"><button class="danger">Cancel workflow</button>
+  </form>
+</details>
+{% endif %}
+
+<div class="panel">
+  <h2>History</h2>
+  <table class="events">
+    <tr><th>#</th><th>When</th><th>Who</th><th>What happened</th></tr>
+    {% for e in events %}
+    <tr><td>{{ e.seq }}</td><td class="small">{{ e.at|dt }}</td>
+      <td class="small">{% if e.actor_id in users %}{{ users[e.actor_id].display_name }}{% else %}{{ e.actor_type }}{% endif %}</td>
+      <td>{{ e.message }} <span class="small muted"><code>{{ e.event_type }}</code></span></td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Workflows{% endblock %}
+{% block content %}
+<h1>Workflows</h1>
+<form method="get" class="row">
+  <select name="state"><option value="">All statuses</option>
+    {% for st, label in states.items() %}<option value="{{ st.value }}" {% if filter == st.value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select><button class="secondary">Filter</button>
+</form>
+<div class="panel">{% include "_wf_table.html" %}</div>
+{% endblock %}
