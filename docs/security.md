@@ -8,7 +8,33 @@
   existing database; it creates its own SQLite file under `data/`.
 - The server binds to `127.0.0.1` only. The setting is fixed in code
   (`src/opsapp/config.py`) and a test fails if it changes.
-- The AI provider setting accepts only `mock`.
+- The request reader is the rule-based `mock` unless `OPSAPP_AI_PROVIDER=anthropic` and an
+  API key are set. Only `mock` and `anthropic` are accepted.
+
+## Optional AI reader (0.2.0)
+
+- **What is sent:** the request text and sender address, catalog service names and
+  keywords, customer names and aliases, site labels, and today's date.
+- **Never sent:** prices, user names, other companies' data, or anything else from the
+  database.
+- **The AI only proposes.** Its answer must match a fixed JSON schema. The same guard as the
+  rule-based reader then drops services not in the catalog, quotes not found word for word
+  in the request, customer or site names not in the text, and bad quantities or timeframes.
+  Customers, prices, approvals and actions are decided by fixed code.
+- **Customer text is data.** The prompt marks the request as untrusted content and asks the
+  model to report instruction-like text rather than follow it. Tests use a fake model that
+  "obeys" such text and show it still cannot change price, customer or approval.
+- **The key** comes only from `OPSAPP_AI_API_KEY`, is passed to the SDK explicitly (so no
+  other credentials on the machine are picked up), is hidden from settings output, and is
+  redacted from logs and exports.
+- **Spending:** at most 1,500 output tokens per call, input checked against an 8,000-token
+  limit before sending, one retry for temporary failures only, and an app budget
+  (`OPSAPP_AI_BUDGET_USD`) after which no AI calls are made. The budget is estimated from
+  token counts, so it is not a billing cap; set a spending limit in the Anthropic console
+  too.
+- **Data handling:** Anthropic's API terms and retention apply to anything sent. Only
+  fictional requests have been sent during development. Real customer text should not be
+  sent until the pre-pilot items below are done.
 
 ## Secrets
 

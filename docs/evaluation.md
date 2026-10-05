@@ -1,10 +1,11 @@
 # Evaluation
 
-`python -m opsapp eval run` runs every case in `src/opsapp/evals/cases.py` against a fresh
+`python -m opsapp eval run` runs every case in `src/opsapp/evals/cases.py` and
+`src/opsapp/evals/heldout.py` against a fresh
 in-memory database with the fictional seed data and a fixed clock, and writes
 `reports/evaluation.md` and `reports/evaluation.json` (git-ignored).
 
-## The case set (61 invented cases)
+## Original case set (61 invented cases, from 0.1.0)
 
 | Category | Cases | What is checked |
 | --- | --- | --- |
@@ -22,25 +23,48 @@ in-memory database with the fictional seed data and a fixed clock, and writes
 
 Expected totals were worked out by hand from the pricing rules, independently of the code.
 
-## Latest result (deterministic baseline, 2026-10-05)
+## Held-out cases (added in 0.2.0, 30 cases)
+
+`src/opsapp/evals/heldout.py`. Written before either reader ran on them, and not changed
+afterwards: when a reader gets one wrong, the case stays as written and the rules are not
+tuned to it. They cover the same kinds of request in wording the original set does not use:
+informal notes, "a replacement" or "each" as quantities, "next Thursday", email headers,
+signatures, two sites in one message, half-hour steps, and instructions aimed at an AI.
+
+## Latest result, rule-based reader (2026-10-05)
+
+`python -m opsapp eval run`
 
 | Metric | Result |
 | --- | --- |
-| Cases passed | 61/61 |
-| Extraction field accuracy | 200/200 |
-| Quote correctness (exact cents) | 17/17 |
+| Cases passed | 77/91 |
+| Reading, original cases: fully correct | 40/40 |
+| Reading, held-out cases: fully correct | 16/30 |
+| Reading, held-out cases: field accuracy | 137/150 (91%) |
+| Quote correctness (exact cents) | 29/33 (the 4 misses are all held-out reading errors) |
 | Unauthorized or invalid actions blocked | 11/11 |
 | Duplicate scenarios handled | 3/3 |
-| Escalation rate | 1 of 61 workflows (the status-unknown case, by design) |
-| AI cost | $0 (mock only) |
-| Runtime | about 4 s |
+| All safety scenarios (approval, failure, duplicate, tenant) | 21/21 |
+| AI cost | $0 |
 
-**How to read this.** The mock extractor's rules were written alongside these cases, so the
-extraction score only shows that the rules cover the cases they were built for. It does not
-predict performance on new wording or real requests. The pricing, approval, failure,
-duplicate and tenant results test fixed rules and are the meaningful part. Review time and
-correction effort cannot be measured on synthetic data. Event timestamps are in the audit
-log, but the app does not yet report review time; that belongs with a pilot.
+Where the rules fail on held-out cases: quantities given as words like "a replacement" or
+"each" (3 cases), "next Thursday" (1), services described in unusual words (4, of which 3
+picked a wrong service), a company name containing a site name (1), work outside the
+catalog not noticed (1), and instruction-like text not on its list (4 of 4).
 
-Checkpoint 2 would add a real model adapter (paid; needs approval) and report both columns
-side by side on this set plus new held-out cases written without looking at the rules.
+**How to read this.** The original-set score only shows the rules cover the cases they were
+built with. The held-out score is the fairer reading measure, but 30 invented cases are a
+small sample. Pricing, approval, failure, duplicate and tenant results test fixed rules and
+do not depend on the reader. Review time and correction effort cannot be measured on
+synthetic data; the dashboard shows average time from draft to submission for real use.
+
+## Rule-based versus AI reader
+
+`python -m opsapp eval compare --yes` runs the 70 reading cases (40 original, 30 held-out)
+through both readers and writes `reports/comparison.md`: accuracy per field on each split,
+quote correctness, whether the right next step was taken (quote or ask), manipulation
+attempts flagged, fallbacks, tokens and estimated cost, and every case where the readers
+disagree. It needs `OPSAPP_AI_PROVIDER=anthropic` and a key, and costs money.
+
+Results: not run yet. The first live run is pending Henry's API key; its numbers will be
+recorded here and in the 0.2.0 version page as measured, including where the AI is worse.

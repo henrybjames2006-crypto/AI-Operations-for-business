@@ -335,7 +335,11 @@ class WorkflowService:
                 adapter=run.provider,
                 model_id=run.model_id,
                 schema_version=output.schema_version,
-                output={**output.model_dump(mode="json"), "validation_problems": problems},
+                output={
+                    **output.model_dump(mode="json"),
+                    "validation_problems": problems,
+                    "fallback_reason": run.fallback_reason,
+                },
                 input_chars=run.input_chars,
                 output_chars=run.output_chars,
                 latency_ms=run.latency_ms,
@@ -357,6 +361,33 @@ class WorkflowService:
                 created_at=now,
             )
         )
+        for attempt in run.failed_attempts:
+            s.add(
+                AIUsage(
+                    id=new_id("ai_usage"),
+                    tenant_id=wf.tenant_id,
+                    workflow_id=wf.id,
+                    provider=attempt.provider,
+                    model_id=attempt.model_id,
+                    task="extract_request_failed",
+                    input_tokens=attempt.input_tokens,
+                    output_tokens=attempt.output_tokens,
+                    latency_ms=attempt.latency_ms,
+                    est_cost_usd=Decimal(attempt.est_cost_usd),
+                    created_at=now,
+                )
+            )
+        if run.fallback_reason:
+            self._audit(
+                s,
+                wf,
+                None,
+                "ai_fallback",
+                f"The AI reader was not used ({run.fallback_reason}); the request was read "
+                f"by the rule-based reader instead.",
+                {"reason": run.fallback_reason, "failed_attempts": len(run.failed_attempts)},
+                actor_type="system",
+            )
         self._audit(
             s,
             wf,
@@ -370,6 +401,10 @@ class WorkflowService:
                 "input_chars": run.input_chars,
                 "output_chars": run.output_chars,
                 "latency_ms": run.latency_ms,
+                "input_tokens": run.input_tokens,
+                "output_tokens": run.output_tokens,
+                "est_cost_usd": run.est_cost_usd,
+                "fallback_reason": run.fallback_reason,
                 "validation_problems": problems,
             },
             actor_type="system",

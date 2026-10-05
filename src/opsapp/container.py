@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .adapters.ports import ActionAdapter
 from .adapters.simulated import make_simulated_adapters
+from .ai.fallback import FallbackExtractor
 from .ai.mock import MockExtractor
+from .ai.ports import Extractor
 from .clock import Clock
 from .config import Settings
 from .dispatch.worker import Dispatcher
 from .persistence.db import make_engine, make_read_session_factory, make_session_factory
+from .persistence.models import AIUsage
 from .workflow.service import WorkflowService
 
 
@@ -51,10 +55,30 @@ def build(
     clock = clock or Clock()
     engine = engine or make_engine(settings.database_path, memory=memory)
     sf = make_session_factory(engine)
+    read_sf = make_read_session_factory(engine)
     service = WorkflowService(
-        sf, clock, MockExtractor(), max_request_chars=settings.max_request_chars
+        sf, clock, make_extractor(settings, read_sf), max_request_chars=settings.max_request_chars
     )
     adapters: dict[str, ActionAdapter] = dict(make_simulated_adapters(sf, clock))
-    return Container(
-        settings, engine, sf, make_read_session_factory(engine), clock, service, adapters
+    return Container(settings, engine, sf, read_sf, clock, service, adapters)
+
+
+def ai_spent_usd(read_sf: sessionmaker[Session]) -> Decimal:
+    """Estimated spend on paid AI calls so far, from this database's usage records."""
+    with read_sf() as s:
+        costs = s.scalars(select(AIUsage.est_cost_usd).where(AIUsage.provider != "mock"))
+        return sum(costs, Decimal("0"))
+
+
+def make_extractor(settings: Settings, read_sf: sessionmaker[Session]) -> Extractor:
+    if settings.ai_provider == "mock":
+        return MockExtractor()
+    from .ai.claude import ClaudeExtractor, make_client
+
+    client = make_client(settings.ai_api_key, settings.ai_timeout_seconds)
+    return FallbackExtractor(
+        ClaudeExtractor(client, settings.ai_model, settings.ai_timeout_seconds),
+        MockExtractor(),
+        lambda: ai_spent_usd(read_sf),
+        settings.ai_budget_usd,
     )
