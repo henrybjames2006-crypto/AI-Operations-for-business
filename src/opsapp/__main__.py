@@ -112,7 +112,13 @@ def _eval_compare(args: argparse.Namespace) -> int:
 
     settings = load_settings()
     if settings.ai_provider != "anthropic":
-        print("Set OPSAPP_AI_PROVIDER=anthropic and OPSAPP_AI_API_KEY in .env first.")
+        env_file = Path(".env").resolve()
+        found = "found" if env_file.is_file() else "NOT found"
+        print(
+            f"OPSAPP_AI_PROVIDER is {settings.ai_provider!r}; it must be 'anthropic'.\n"
+            f"Settings file {env_file} was {found}. Set OPSAPP_AI_PROVIDER=anthropic and "
+            "OPSAPP_AI_API_KEY there (one line each), save, and run this again."
+        )
         return 1
     if not args.yes:
         print(
