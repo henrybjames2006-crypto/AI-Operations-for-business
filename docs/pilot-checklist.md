@@ -1,20 +1,25 @@
 # Pilot checklist
 
 What must be true before one real IT service firm uses this app with real work, what to
-measure while it does, and when to stop. Version 0.3.0 does **not** meet this checklist:
-the items marked "Checkpoint 4" are not built yet.
+measure while it does, and when to stop. Version 0.4.0 does **not** meet this checklist
+yet: hosting, off-machine backups, an independent review and the agreement with the firm
+are still open.
 
 ## 1. Before any real data enters the app
 
-**Security (Checkpoint 4, not built)**
+**Security**
 
-- [ ] Real sign-in (passwords with a second factor, or the firm's single sign-on) replaces
-      the local user switcher.
+- [x] Real sign-in (passwords with a second factor) replaces the local user switcher.
+      Built in 0.4.0; single sign-on is not.
 - [ ] The app runs somewhere agreed with the firm: on their machine, or hosted with HTTPS,
-      a managed database and access limited to their staff.
+      a managed database and access limited to their staff. Not decided.
 - [ ] Backups are encrypted, stored off the machine, and a restore has been tested.
-- [ ] The audit log can be exported for the firm.
-- [ ] A security review of the above has been done and its findings fixed.
+      0.4.0 encrypts and test-restores backups (`backup --encrypt`, `backup --verify`);
+      storing them off the machine and running a restore drill are still to do.
+- [x] The audit log can be exported for the firm (JSON and CSV, 0.4.0).
+- [ ] A security review of the above has been done and its findings fixed. 0.4.0 has a
+      self-review ([security-review-0.4.0.md](security-review-0.4.0.md)); an independent
+      review is still needed.
 
 **Agreement with the firm**
 

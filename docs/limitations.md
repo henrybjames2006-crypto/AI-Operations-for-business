@@ -1,4 +1,4 @@
-# Limitations (version 0.3.0)
+# Limitations (version 0.4.0)
 
 This is a local prototype for demonstrating one workflow with fictional data. It is **not
 production ready** and has not been used with real customers.
@@ -16,8 +16,8 @@ production ready** and has not been used with real customers.
 ## Functional limits
 
 - **Rule-based reading is weak on new wording.** On the 30 held-out cases the rules read
-  17 fully correctly (16 in 0.2.0; the 0.3.0 site fix was prompted by a held-out case). They miss quantities written as "a replacement" or "each", dates such
-  as "next Thursday", most instruction-like text not on their list, and some services
+  17 fully correctly (16 in 0.2.0; the 0.3.0 site fix was prompted by a held-out case).
+  They miss quantities written as "a replacement" or "each", dates such as "next Thursday", most instruction-like text not on their list, and some services
   described in unusual words. Misses usually become clarification questions, but some
   produce a wrong service or quantity that a person must catch before submitting.
 - **The AI reader is optional and paid.** It is off by default. Its accuracy and cost are
@@ -43,12 +43,20 @@ production ready** and has not been used with real customers.
 
 ## Technical limits
 
-- **Local user switcher, no passwords.** Anyone who can reach the page can be any user.
-  Safe only because the server binds to 127.0.0.1.
-- **SQLite, single machine.** Fine for a demo; a pilot would need a managed database,
-  backups off the machine, and real authentication.
-- **Sessions use a local signed cookie.** If `OPSAPP_SESSION_SECRET` is unset a random one is
-  generated at start, so restarting the server signs everyone out.
+- **Sign-in is password plus authenticator app only.** No single sign-on (Microsoft 365,
+  Google) and no emailed password reset: an owner resets passwords and authenticator apps.
+  If the only owner loses both their phone and recovery codes, the fix is
+  `python -m opsapp user create` for a new owner on the computer that holds the database.
+- **The authenticator secrets are stored unencrypted in the database.** Anyone with the
+  database file can read them. Keep backups encrypted and the computer locked.
+- **The session cookie is not marked Secure** because the app is served over plain HTTP on
+  127.0.0.1. Hosting it anywhere else needs HTTPS first.
+- **Demo mode** has no passwords at all and is only for the fictional data. It refuses to
+  start once any user has a password.
+- **SQLite, single machine, not hosted.** Where the app runs for a pilot is undecided.
+  Backups can be encrypted and checked, but copying them off the machine is up to you.
+- **The security review is a self-review** against the OWASP Top 10, not an independent
+  test.
 - **No accessibility audit, browser matrix or load testing** beyond a headless Chromium run.
 - One third-party deprecation warning appears in the tests (Starlette's test client and
   `httpx`); it does not affect the app.

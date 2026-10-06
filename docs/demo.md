@@ -2,7 +2,9 @@
 
 Everything below uses invented businesses and people. Nothing leaves your computer.
 
-Start the app as described in the README, then open <http://127.0.0.1:8000>.
+Start the app in **demo mode** as described in the README (`OPSAPP_DEMO_MODE=true`), then
+open <http://127.0.0.1:8000> and pick a user. With real sign-in instead, give these users
+passwords on the **Users** page first.
 
 | User | Role | Tenant |
 | --- | --- | --- |
@@ -50,7 +52,7 @@ prepared a quote can never approve it.
 
 ## 3. Approval (Marcus)
 
-Click **Switch user**, sign in as **Marcus Lee**, open **Approval queue**, then the workflow.
+Click **Switch user** (in demo mode) and sign in as **Marcus Lee**, open **Approval queue**, then the workflow.
 The page shows exactly what will happen: (1) a simulated quote email to
 `office@harbordental.example`, (2) a simulated proposal of three appointment times (not
 checked against any calendar). Click **Approve this version**.
@@ -105,3 +107,17 @@ gives one row per workflow.
 5. The new draft shows each price, services marked **new**, and which services will no
    longer be offered. Click **Approve this pricing version** to start using it. Quotes
    made earlier keep their old prices.
+
+## 8. Real sign-in and users (owner)
+
+With demo mode off and your own owner account (README, "Real sign-in"):
+
+1. Sign in with your email and password. The first time, scan the QR code with an
+   authenticator app, enter its code, and save the 10 recovery codes.
+2. Open **Users**, click **Set a password** for Priya Shah, and note the temporary password.
+3. Sign out and sign in as `priya@brightline-it.example` with it. Priya sets up her own
+   authenticator app and must then choose her own password.
+4. Back as the owner, **Disable** Priya: her open session ends at once.
+5. Open **Audit log** and download **JSON**. Check it with
+   `python -m opsapp audit verify-export audit-log.json`.
+

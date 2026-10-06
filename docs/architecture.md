@@ -1,4 +1,4 @@
-# Architecture (version 0.3.0)
+# Architecture (version 0.4.0)
 
 One Python package, `opsapp`, run as two local processes that share one SQLite file:
 
@@ -22,6 +22,7 @@ src/opsapp/
   evals/        synthetic cases, held-out cases, labelled real samples, evaluation
                 runner and reader comparison
   discovery/    offline redaction of real sample requests (files only, no database)
+  auth/         passwords (scrypt), authenticator codes (TOTP), sessions, user management
   verify.py     stdlib-only independent quote recalculation
 ```
 
@@ -144,4 +145,19 @@ event for each state.
 
 `discovery/redact.py` and `evals/samples.py` work only on files. Labelled samples are scored
 against the demo tenant's catalog, with the customer left unscored.
+
+## Sign-in (0.4.0)
+
+`auth/service.py` (`AuthService`, on the container as `c.auth`) owns sign-in and users.
+The web layer keeps a signed cookie (Starlette's session middleware) holding only a random
+session token, the form token and flash messages; `AuthService.session_user` looks the
+token's SHA-256 up in `auth_sessions` on every request and ends idle, expired or revoked
+sessions. Between the password and the code, the cookie holds the user id for at most five
+minutes and nothing else is reachable. Migration 0003 adds the sign-in columns on `users`,
+a unique index on email, and the `auth_sessions` and `recovery_codes` tables.
+
+`web/hardening.py` adds security headers and a body size limit as plain ASGI middleware.
+`persistence/backup.py` encrypts backups (AES-256-GCM) and checks them in a temporary copy.
+`workflow/audit_export.py` writes the audit log export; `verify.verify_audit_export` checks
+it independently.
 
