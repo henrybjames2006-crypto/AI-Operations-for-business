@@ -57,10 +57,12 @@ def validate_output(
                 item = item.model_copy(update={"quantity": None})
         items.append(item)
 
-    customers = [m for m in out.customer_mentions if m in known_names]
+    customers = [m for m in out.customer_mentions if m in known_names and _norm(m) in text]
     if len(customers) != len(out.customer_mentions):
-        problems.append("Dropped customer mentions that are not known customer names.")
-    sites = [s for s in out.site_mentions if s in ctx.site_labels]
+        problems.append(
+            "Dropped customer mentions that are not known customer names found in the text."
+        )
+    sites = [s for s in out.site_mentions if s in ctx.site_labels and _norm(s) in text]
 
     timeframe = out.timeframe
     if (

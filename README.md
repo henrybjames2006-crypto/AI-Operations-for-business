@@ -1,4 +1,4 @@
-# AI Operations for Business (Checkpoint 1 prototype)
+# AI Operations for Business (version 0.2.0 prototype)
 
 A local prototype of one workflow for small IT service firms:
 
@@ -8,8 +8,10 @@ A local prototype of one workflow for small IT service firms:
 **Status: local prototype, fictional data only. Not production ready.** Nothing in this
 repository sends real email, creates real calendar events, charges anyone, signs anything,
 or connects to any other system or database. All "delivery" and "scheduling" happens in
-simulated adapters that write rows to the local SQLite file. There is no real AI provider in
-Checkpoint 1; request reading is done by a deterministic, rule-based mock.
+simulated adapters that write rows to the local SQLite file. Requests are read by a
+rule-based reader by default; version 0.2.0 adds an optional Claude model as the reader
+(off unless you turn it on, paid per request). Either way the reader only proposes what a
+request says, and fixed rules decide customers, prices and approvals.
 
 Whether small IT service firms want this, or would pay for it, has not been tested. See
 [docs/limitations.md](docs/limitations.md).
@@ -68,12 +70,38 @@ Follow [docs/demo.md](docs/demo.md) for a five-minute walkthrough.
 ### Checks
 
 ```powershell
-python -m pytest                 # 202 tests
+python -m pytest                 # 225 tests, no network needed
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy src
 python -m opsapp eval run        # writes reports\evaluation.md and reports\evaluation.json
 ```
+
+### Optional: read requests with a Claude model (paid)
+
+Off by default. Create an API key at <https://console.anthropic.com>, set a monthly spending
+limit there, then put the key in your local `.env` (never in the repository or in chat):
+
+```powershell
+(Get-Content .env) -replace '^OPSAPP_AI_PROVIDER=.*', 'OPSAPP_AI_PROVIDER=anthropic' | Set-Content .env
+$key = Read-Host "Paste your Anthropic API key"
+(Get-Content .env) -replace '^OPSAPP_AI_API_KEY=.*', "OPSAPP_AI_API_KEY=$key" | Set-Content .env
+Remove-Variable key
+```
+
+New requests are then read by `OPSAPP_AI_MODEL` (default `claude-haiku-4-5`). If the AI
+fails, times out, returns something unusable, or the app's budget (`OPSAPP_AI_BUDGET_USD`,
+default $5.00) is used up, the request is read by the rules instead and the page says so.
+Each workflow page shows tokens and estimated cost.
+
+Compare the two readers on the evaluation set (about 70 fictional requests; roughly $0.20
+to $1 on Haiku 4.5, stopped by the budget):
+
+```powershell
+python -m opsapp eval compare --yes   # writes reports\comparison.md and reports\comparison.json
+```
+
+To switch back, set `OPSAPP_AI_PROVIDER=mock`.
 
 ### Operations commands
 
@@ -103,7 +131,7 @@ exports; see [docs/security.md](docs/security.md).
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
-  contains (current: [0.1.0](docs/versions/v0.1.0.md), Checkpoint 1)
+  contains (current: [0.2.0](docs/versions/v0.2.0.md), Checkpoint 2)
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results
@@ -114,4 +142,5 @@ exports; see [docs/security.md](docs/security.md).
 ## Stack
 
 Python 3.14, FastAPI with server-rendered Jinja2 pages (no JavaScript), SQLAlchemy 2.1,
-Alembic, SQLite (WAL), Pydantic 2, pytest + Hypothesis, Ruff, mypy.
+Alembic, SQLite (WAL), Pydantic 2, Anthropic Python SDK (optional reader), pytest +
+Hypothesis, Ruff, mypy.

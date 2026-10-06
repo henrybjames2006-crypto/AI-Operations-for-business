@@ -61,6 +61,8 @@ def create_app(
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(usd=format_usd, ROLE_TEXT=ROLE_TEXT)
     templates.env.filters["usd"] = lambda v: format_usd(Decimal(str(v))) if v is not None else ""
+    # AI costs are fractions of a cent per request, so show four decimal places.
+    templates.env.filters["usd4"] = lambda v: f"${Decimal(str(v)):.4f}" if v is not None else ""
     templates.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else ""
 
     # ------------------------------------------------------------------ helpers

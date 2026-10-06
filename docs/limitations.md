@@ -1,4 +1,4 @@
-# Limitations (Checkpoint 1)
+# Limitations (version 0.2.0)
 
 This is a local prototype for demonstrating one workflow with fictional data. It is **not
 production ready** and has not been used with real customers.
@@ -7,15 +7,22 @@ production ready** and has not been used with real customers.
 
 - No customer interviews, pilots, pricing tests or market research have been done. Whether
   small IT service firms want this, or would pay for it, is an untested hypothesis.
-- Evaluation scores come from 61 invented cases written alongside the rules they test. They
-  do not measure accuracy on real requests, time saved or error rates in practice.
+- Evaluation scores come from invented cases: 61 written alongside the rule-based reader and
+  30 held-out cases added in 0.2.0. None of them measure accuracy on real requests, time
+  saved or error rates in practice.
 
 ## Functional limits
 
-- **No real AI.** Requests are read by deterministic keyword and number rules. They handle
-  the phrasings in the samples and test cases; new phrasings will often be missed and turn
-  into clarification questions. A real model adapter is planned for Checkpoint 2 and needs
-  approval because it is a paid service.
+- **Rule-based reading is weak on new wording.** On the 30 held-out cases the rules read
+  16 fully correctly. They miss quantities written as "a replacement" or "each", dates such
+  as "next Thursday", most instruction-like text not on their list, and some services
+  described in unusual words. Misses usually become clarification questions, but some
+  produce a wrong service or quantity that a person must catch before submitting.
+- **The AI reader is optional and paid.** It is off by default. Its accuracy and cost are
+  measured only on the fictional evaluation set (see docs/evaluation.md).
+- **A site name inside a company name** can be taken as the site (for example "Bakery" in
+  "Summit Bakery Co"), so a site question that should be asked is skipped. Found by
+  held-out case 17; not fixed in 0.2.0.
 - **No real actions.** Email and calendar adapters are simulations that write rows to the
   local database. Nothing is sent and no event is created.
 - **Scheduling is a proposal only.** The three times are the next business days at 09:00 in

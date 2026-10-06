@@ -1,4 +1,4 @@
-# Architecture (Checkpoint 1)
+# Architecture (version 0.2.0)
 
 One Python package, `opsapp`, run as two local processes that share one SQLite file:
 
@@ -11,13 +11,14 @@ One Python package, `opsapp`, run as two local processes that share one SQLite f
 ```
 src/opsapp/
   domain/       pure rules: money, pricing, states, roles, hashing, scheduling, errors
-  ai/           extraction contract (schema, port), deterministic mock, output guard
+  ai/           extraction contract (schema, port), rule-based mock, optional Claude
+                reader, fallback/budget wrapper, output guard
   adapters/     action adapter port + simulated email and calendar with fault injection
   persistence/  SQLAlchemy models, engine/sessions, Alembic migrations, backup/restore
   workflow/     WorkflowService (all use cases), audit chain, catalog snapshots
   dispatch/     outbox dispatcher: leasing, retries, timeouts, reconciliation
   web/          routes, view models, templates, samples
-  evals/        synthetic cases and the evaluation runner
+  evals/        synthetic cases, held-out cases, evaluation runner and reader comparison
   verify.py     stdlib-only independent quote recalculation
 ```
 
@@ -53,7 +54,18 @@ and number words). It also flags instruction-like text ("ignore previous instruc
 "to the assistant", "skip the approval", discount or price demands). Its output is a
 Pydantic `ExtractionOutput`. `ai/guard.py` then drops anything that is not a known SKU,
 whose evidence quote is not in the original text, or whose quantity or timeframe is invalid.
-The extractor sees customer names and the catalog, never prices.
+The extractor sees customer names and the catalog, never prices. Customer and site
+mentions must be known names that appear in the text.
+
+Version 0.2.0 adds an optional AI reader, `ai/claude.py`, behind the same `Extractor`
+interface. It calls a Claude model through the Anthropic Python SDK with structured output
+(a fixed JSON schema), then the result goes through the same guard. `ai/fallback.py` wraps
+it: if the app budget is spent the AI is not called; a temporary failure (timeout,
+connection, rate limit, server error) is retried once; anything else (rejected key, refusal,
+output cut off or not matching the schema) is not retried. In every failure case the
+rule-based reader reads the request instead, the history records an `ai_fallback` event,
+and each failed call is still recorded in `ai_usage` with its tokens and estimated cost.
+`container.make_extractor` picks the reader from `OPSAPP_AI_PROVIDER`.
 
 Customer matching is deterministic: exact sender domain, then exact name or alias in the
 text. Partial matches only narrow the options in a "which customer?" question. Each fact in

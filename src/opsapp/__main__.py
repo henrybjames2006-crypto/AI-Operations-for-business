@@ -87,13 +87,66 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from .evals.runner import run_all, write_report
+    if args.action == "compare":
+        return _eval_compare(args)
+    from .evals.runner import SCENARIO_CATEGORIES, run_all, write_report
 
     results = run_all()
     md, js = write_report(results, Path(args.out))
     print(md.read_text(encoding="utf-8").split("\n## Cases")[0])
     print(f"Report: {md}\nData:   {js}")
-    return 0 if results["summary"]["failed"] == 0 else 1
+    # Reading mistakes are reported, not fatal. Safety scenarios must all pass.
+    unsafe = [
+        r for r in results["results"] if r["category"] in SCENARIO_CATEGORIES and not r["passed"]
+    ]
+    return 1 if unsafe else 0
+
+
+def _eval_compare(args: argparse.Namespace) -> int:
+    from decimal import Decimal
+
+    from .ai.claude import ClaudeExtractor, make_client
+    from .ai.fallback import FallbackExtractor
+    from .ai.mock import MockExtractor
+    from .evals.runner import run_compare, write_compare_report
+
+    settings = load_settings()
+    if settings.ai_provider != "anthropic":
+        env_file = Path(".env").resolve()
+        found = "found" if env_file.is_file() else "NOT found"
+        print(
+            f"OPSAPP_AI_PROVIDER is {settings.ai_provider!r}; it must be 'anthropic'.\n"
+            f"Settings file {env_file} was {found}. Set OPSAPP_AI_PROVIDER=anthropic and "
+            "OPSAPP_AI_API_KEY there (one line each), save, and run this again."
+        )
+        return 1
+    if not args.yes:
+        print(
+            f"This sends about 70 fictional requests to {settings.ai_model} (a paid API). "
+            f"Spending stops at the budget of ${settings.ai_budget_usd}. "
+            "Re-run with --yes to go ahead."
+        )
+        return 1
+    client = make_client(settings.ai_api_key, settings.ai_timeout_seconds)
+    spent = {"usd": Decimal("0")}
+
+    def reader() -> FallbackExtractor:
+        return FallbackExtractor(
+            ClaudeExtractor(client, settings.ai_model, settings.ai_timeout_seconds),
+            MockExtractor(),
+            lambda: spent["usd"],
+            settings.ai_budget_usd,
+        )
+
+    def track(res: dict[str, object]) -> None:
+        spent["usd"] += Decimal(str(res.get("ai_cost_usd", "0")))
+
+    label = f"anthropic/{settings.ai_model}"
+    data = run_compare(reader, label, after_case=track)
+    md, js = write_compare_report(data, Path(args.out))
+    print(md.read_text(encoding="utf-8").split("\n## Cases where")[0])
+    print(f"Report: {md}\nData:   {js}")
+    return 0
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
@@ -178,8 +231,9 @@ def main(argv: list[str] | None = None) -> int:
     dp.add_argument("--once", action="store_true", help="process due work and exit")
     dp.set_defaults(fn=cmd_dispatch)
     ev = sub.add_parser("eval", help="run the synthetic evaluation set")
-    ev.add_argument("action", choices=["run"])
+    ev.add_argument("action", choices=["run", "compare"])
     ev.add_argument("--out", default="reports")
+    ev.add_argument("--yes", action="store_true", help="confirm the paid comparison run")
     ev.set_defaults(fn=cmd_eval)
     bk = sub.add_parser("backup", help="write a consistent copy of the database")
     bk.add_argument("--out", required=True)

@@ -388,8 +388,8 @@ def dashboard(s: Session, actor: User) -> dict[str, Any]:
         "avg_review": (
             f"{sum(review_secs) / len(review_secs) / 60:.1f} min" if review_secs else "n/a"
         ),
-        "cost_per_completed": format_usd(cost / completed) if completed else "n/a",
-        "ai_cost_total": format_usd(cost),
+        "cost_per_completed": f"${cost / completed:.4f}" if completed else "n/a",
+        "ai_cost_total": f"${cost:.4f}",
         "open_exceptions": len(open_exc),
         "awaiting": counts.get("awaiting_approval", 0),
         "recent_completed": [r for r in rows if r["state"] == "completed"][:5],

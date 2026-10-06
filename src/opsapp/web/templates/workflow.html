@@ -76,7 +76,8 @@
   {% if extraction %}
   <p class="small muted">Read by <code>{{ extraction.adapter }}/{{ extraction.model_id }}</code> (schema v{{ extraction.schema_version }}),
     {{ extraction.latency_ms }} ms. The extractor only proposes; customer matching, prices and approvals are decided by fixed rules.
-    {% for u in usage %} AI cost: {{ u.est_cost_usd|usd }}.{% endfor %}</p>
+    {% set paid = usage|rejectattr('provider', 'equalto', 'mock')|list %}{% if paid %}Paid AI calls: {{ paid|length }}, {{ paid|sum(attribute='input_tokens') }} input and {{ paid|sum(attribute='output_tokens') }} output tokens; estimated AI cost {{ paid|sum(attribute='est_cost_usd')|usd4 }}.{% else %}No paid AI calls.{% endif %}</p>
+  {% if extraction.output.fallback_reason %}<p class="flag small">The AI reader was not used: {{ extraction.output.fallback_reason }}. The rule-based reader read this request instead.</p>{% endif %}
   {% endif %}
 </div>
 </div>
