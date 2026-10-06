@@ -14,7 +14,7 @@
 <div class="next"><strong>What happens next:</strong> {{ next_step }}</div>
 
 {% if open_exceptions %}
-<div class="panel" style="border-color:#f5c2bd">
+<div class="panel alert">
   <h2>Needs attention</h2>
   {% for e in open_exceptions %}<div class="msg error"><strong>{{ e.kind|replace('_',' ')|capitalize }}:</strong> {{ e.detail }}</div>{% endfor %}
   {% if can.resolve %}
@@ -160,13 +160,13 @@
   </details>
   {% endif %}
   {% if can.submit %}
-  <form method="post" action="/workflows/{{ wf.id }}/submit" style="margin-top:12px">
+  <form method="post" action="/workflows/{{ wf.id }}/submit" class="spaced">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="version" value="{{ wf.state_version }}">
     <button>Submit for approval</button>
   </form>
   {% endif %}
   {% if can.revise %}
-  <form method="post" action="/workflows/{{ wf.id }}/revise" style="margin-top:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Revise quote</button></form>
+  <form method="post" action="/workflows/{{ wf.id }}/revise" class="spaced"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Revise quote</button></form>
   {% endif %}
 </div>
 {% endif %}
@@ -175,7 +175,7 @@
 <div class="panel">
   <h2>Proposed actions <span class="badge sim">SIMULATED</span></h2>
   {% for a in actions %}
-  <div class="simbox" {% if a.status == 'voided' %}style="opacity:.55"{% endif %}>
+  <div class="simbox{% if a.status == 'voided' %} voided{% endif %}">
     <div class="row"><strong>{{ a.sequence }}. {{ action_labels[a.kind] }}</strong>
       <span class="badge {% if a.status == 'succeeded' %}s-completed{% elif a.status in ['failed','escalated','uncertain'] %}s-failed{% endif %}">{{ a.status }}</span>
       <span class="small muted">for quote version {{ (versions|selectattr('id','equalto',a.quote_version_id)|first).version_no }}</span></div>

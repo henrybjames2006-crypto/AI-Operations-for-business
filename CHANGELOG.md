@@ -5,8 +5,43 @@ All notable changes, one entry per version. Each version has a full page in
 
 ## [Unreleased]
 
-Nothing yet. Next planned: Checkpoint 4, real sign-in and hardening. Needs approval before
-starting.
+Nothing yet. Next: to be planned with Henry (hosting for a pilot, or more discovery work).
+
+## [0.4.0] - 2026-10-06 (Checkpoint 4)
+
+Full details: [docs/versions/v0.4.0.md](docs/versions/v0.4.0.md)
+
+### Added
+- Sign-in with email, password and a code from an authenticator app (set up by QR code at
+  first sign-in), with ten one-time recovery codes.
+- Lockout for 15 minutes after 5 wrong passwords or codes; every sign-in event is audited.
+- Server-side sessions that end at sign-out, after 30 idle minutes, after 8 hours, and at
+  once when a user is disabled or reset.
+- Users page for owners: add a user (temporary password shown once), disable, enable,
+  reset password, reset authenticator. Account page: change password, new recovery codes.
+- `python -m opsapp user create` to make the first owner.
+- Demo mode (`OPSAPP_DEMO_MODE=true`) keeps the no-password user picker for the fictional
+  data, and refuses to start once anyone has a password.
+- Encrypted backups (`backup --encrypt`) and a backup check (`backup --verify`) that
+  test-restores into a temporary copy.
+- Audit log download for owners (JSON with the hash rule, and CSV), and
+  `audit verify-export` to check a download.
+- Security headers, request size limit, and GitHub Actions checks (Ruff, mypy, tests,
+  Bandit, pip-audit) on every pull request.
+- Security self-review against the OWASP Top 10, and ADR 0008.
+
+### Changed
+- **Sign-in is now required by default.** The user picker only appears in demo mode.
+- The app refuses to start with real sign-in unless `OPSAPP_SESSION_SECRET` is set.
+- Database migration 0003 adds sign-in columns, a unique email index, and session and
+  recovery code tables.
+- New dependencies: `cryptography` (backup encryption) and `segno` (QR code).
+- Inline styles moved to the stylesheet; `assert` checks in the app replaced with errors.
+
+### Known limitations
+- No single sign-on, no emailed password reset, not hosted.
+- Authenticator secrets are stored unencrypted in the database.
+- The security review is a self-review.
 
 ## [0.3.0] - 2026-10-06 (Checkpoint 3)
 

@@ -1,4 +1,4 @@
-# AI Operations for Business (version 0.3.0 prototype)
+# AI Operations for Business (version 0.4.0 prototype)
 
 A local prototype of one workflow for small IT service firms:
 
@@ -20,7 +20,8 @@ Whether small IT service firms want this, or would pay for it, has not been test
 
 ## What you can do in the demo
 
-1. Sign in as a fictional user (local user switcher, no passwords).
+1. Sign in with a password and a code from an authenticator app, or, in demo mode, pick a
+   fictional user with no password.
 2. Paste a customer request, or use a built-in sample.
 3. See what was understood, where each fact came from (Stated, Inferred, From records,
    Operator), and answer the clarification questions.
@@ -32,6 +33,8 @@ Whether small IT service firms want this, or would pay for it, has not been test
 7. Read the full history and verify the tamper-evident audit chain.
 8. See time per step and how often people corrected the reader on **Measurements**.
 9. As the owner, import a price list from a CSV file as a draft and approve it.
+10. As the owner, add users, reset passwords and authenticator apps, disable users, and
+    download the audit log.
 
 ## Run it on Windows (PowerShell)
 
@@ -56,8 +59,27 @@ $secret = python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 python -m opsapp db upgrade
 python -m opsapp seed
+```
+
+Then choose how to sign in.
+
+**Demo mode** (the quickest way to try it with the fictional users, no passwords):
+
+```powershell
+(Get-Content .env) -replace '^OPSAPP_DEMO_MODE=.*', 'OPSAPP_DEMO_MODE=true' | Set-Content .env
 python -m opsapp serve
 ```
+
+**Real sign-in** (password plus an authenticator app on your phone). Create your own owner
+account in one of the demo companies; you set up the authenticator app at first sign-in:
+
+```powershell
+python -m opsapp user create --company "Brightline IT Services" --name "Your Name" --email you@example.com
+python -m opsapp serve
+```
+
+As that owner, open **Users** to give the demo users passwords. Demo mode can't be used on
+a database where anyone has a password; use a separate database for it.
 
 Open <http://127.0.0.1:8000>. The server only listens on 127.0.0.1.
 
@@ -74,7 +96,7 @@ Follow [docs/demo.md](docs/demo.md) for a five-minute walkthrough.
 ### Checks
 
 ```powershell
-python -m pytest                 # 271 tests, no network needed
+python -m pytest                 # 298 tests, no network needed
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy src
@@ -121,8 +143,10 @@ python -m opsapp eval run --samples C:\samples\redacted     # after filling in l
 
 ```powershell
 python -m opsapp audit verify                       # check every tenant's audit hash chain
-python -m opsapp backup --out backups\opsapp.sqlite # consistent copy + integrity check
-python -m opsapp restore --from backups\opsapp.sqlite --yes   # stop the server first
+python -m opsapp audit verify-export audit-log.json # check a downloaded audit log
+python -m opsapp backup --out backups\opsapp.opsbak --encrypt  # asks for a passphrase
+python -m opsapp backup --verify backups\opsapp.opsbak         # test-restores into a temp copy
+python -m opsapp restore --from backups\opsapp.opsbak --yes    # stop the server first
 python -m opsapp export <workflow id> --out export.json      # redacted workflow history
 python -m opsapp recompute-quote <quote version id>          # independent recalculation
 python -m opsapp db current
@@ -145,12 +169,14 @@ exports; see [docs/security.md](docs/security.md).
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
-  contains (current: [0.3.0](docs/versions/v0.3.0.md), Checkpoint 3)
+  contains (current: [0.4.0](docs/versions/v0.4.0.md), Checkpoint 4)
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results
 - [docs/security.md](docs/security.md): boundaries, secrets, pre-pilot checklist
 - [docs/limitations.md](docs/limitations.md): what this prototype does not do
+- [docs/security-review-0.4.0.md](docs/security-review-0.4.0.md): self-review against the
+  OWASP Top 10
 - [docs/discovery/](docs/discovery/README.md): interview kit, redaction and labelling
 - [docs/pilot-checklist.md](docs/pilot-checklist.md): what must be true before a pilot
 - [docs/adr/](docs/adr/): design decisions

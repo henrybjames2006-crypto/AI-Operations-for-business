@@ -3,6 +3,11 @@
 {% block content %}
 <h1>Audit log</h1>
 <div class="msg {{ 'ok' if ok else 'error' }}">Hash chain {{ 'intact' if ok else 'BROKEN at event #' ~ bad }} across {{ count }} events. (Detects edits to the local database; does not prevent them.)</div>
+{% if perm(Permission.EXPORT_AUDIT) %}
+<p>Download the full log: <a href="/audit/export.json">JSON (with the hash chain rule)</a> ·
+  <a href="/audit/export.csv">CSV for a spreadsheet</a>. Check a JSON download with
+  <code>python -m opsapp audit verify-export audit-log.json</code>.</p>
+{% endif %}
 <div class="panel">
 <table class="events">
   <tr><th>#</th><th>When</th><th>Who</th><th>Event</th><th>What happened</th></tr>

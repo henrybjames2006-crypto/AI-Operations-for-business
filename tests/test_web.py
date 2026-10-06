@@ -17,16 +17,52 @@ def web(tmp_path):  # type: ignore[no-untyped-def]
     env.c.engine.dispose()
 
 
+PASSWORD = "plain test password for every user"  # noqa: S105 - test only
+TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"  # noqa: S105 - test only
+_HASH: list[str] = []
+
+
+def give_sign_in(env, user: str) -> None:  # type: ignore[no-untyped-def]
+    """Gives a seed user a password and a set-up authenticator app."""
+    from opsapp.auth.passwords import hash_password
+    from opsapp.persistence.models import User
+
+    if not _HASH:
+        _HASH.append(hash_password(PASSWORD))
+    with env.c.sf.begin() as s:
+        u = s.get(User, env.ids[user])
+        u.password_hash = _HASH[0]
+        u.totp_secret = TOTP_SECRET
+        u.totp_confirmed_at = env.clock.now()
+        u.totp_last_step = None  # tests may sign the same user in twice in one 30 s step
+
+
+def csrf_of(text: str) -> str:
+    return re.search(r'name="csrf" value="([^"]+)"', text).group(1)  # type: ignore[union-attr]
+
+
 def client_as(app, env, user):  # type: ignore[no-untyped-def]
+    """Signs in through the real pages: password, then authenticator code."""
+    from opsapp.auth import totp
+
+    give_sign_in(env, user)
     c = TestClient(app, follow_redirects=False)
-    page = c.get("/login")
-    token = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)
-    r = c.post("/login", data={"user_id": env.ids[user], "csrf": token})
-    assert r.status_code == 303
-    # The session (and its form token) is replaced at sign-in.
-    page = c.get("/workflows")
-    c.csrf = re.search(r'name="csrf" value="([^"]+)"', page.text).group(1)  # type: ignore[attr-defined]
+    email = f"{user}@" + (
+        "northgate-tech.example" if user in NORTHGATE else "brightline-it.example"
+    )
+    r = c.post(
+        "/login",
+        data={"email": email, "password": PASSWORD, "csrf": csrf_of(c.get("/login").text)},
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/login/code", r.text
+    code = totp.code_at(TOTP_SECRET, env.clock.now())
+    r = c.post("/login/code", data={"code": code, "csrf": csrf_of(c.get("/login/code").text)})
+    assert r.status_code == 303 and r.headers["location"] == "/", r.text
+    c.csrf = csrf_of(c.get("/workflows").text)  # type: ignore[attr-defined]
     return c
+
+
+NORTHGATE = {"nia", "omar", "grace"}
 
 
 def test_pages_require_sign_in(web) -> None:  # type: ignore[no-untyped-def]

@@ -25,6 +25,8 @@ class Permission(StrEnum):
     RETRY_EXECUTION = "retry_execution"
     MANAGE_CATALOG = "manage_catalog"
     SIMULATION_CONTROLS = "simulation_controls"
+    MANAGE_USERS = "manage_users"
+    EXPORT_AUDIT = "export_audit"
 
 
 P = Permission

@@ -1,7 +1,8 @@
 """Command line: ``python -m opsapp <command>``.
 
-Commands: db upgrade | db downgrade | db current | seed | serve | dispatch | eval run |
-backup | restore | audit verify | export | recompute-quote
+Commands: db upgrade | db downgrade | db current | seed | user create | serve | dispatch |
+eval run | redact | backup | restore | audit verify | audit verify-export | export |
+recompute-quote
 """
 
 from __future__ import annotations
@@ -53,7 +54,9 @@ def cmd_seed(_args: argparse.Namespace) -> int:
     print("Seeded fictional tenants: Brightline IT Services and Northgate Tech.")
     print(
         f"{len([k for k in ids if not k.startswith(('customer_', 'site_', 'tenant_'))])} demo "
-        f"users created. Open the app and pick a user on the sign-in page."
+        "users created, without passwords. Either set OPSAPP_DEMO_MODE=true to pick them on "
+        "the sign-in page, or create your own owner with: python -m opsapp user create "
+        '--company "Brightline IT Services" --name "Your Name" --email you@example.com'
     )
     return 0
 
@@ -67,8 +70,16 @@ def cmd_serve(_args: argparse.Namespace) -> int:
     if not settings.database_path.exists():
         print("No database yet. Run: python -m opsapp db upgrade; python -m opsapp seed")
         return 1
-    print(f"Serving on http://{settings.host}:{settings.port} (local only). Ctrl+C to stop.")
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="warning")
+    try:
+        app = create_app(settings)
+    except RuntimeError as exc:
+        print(exc)
+        return 1
+    mode = "DEMO MODE, no passwords" if settings.demo_mode else "sign-in with password and code"
+    print(
+        f"Serving on http://{settings.host}:{settings.port} (local only, {mode}). Ctrl+C to stop."
+    )
+    uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
     return 0
 
 
@@ -212,17 +223,51 @@ def cmd_redact(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_backup(args: argparse.Namespace) -> int:
-    from .persistence.backup import backup
+def _ask_secret(prompt: str, *, twice: bool = False) -> str:
+    import getpass
 
+    value = getpass.getpass(prompt)
+    if twice and getpass.getpass("Type it again: ") != value:
+        raise SystemExit("The two entries were not the same. Nothing was done.")
+    return value
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    from .persistence.backup import BackupError, backup, is_encrypted, verify_backup
+
+    if args.verify:
+        path = Path(args.verify)
+        if not path.is_file():
+            print(f"Backup not found: {path}")
+            return 1
+        passphrase = _ask_secret("Backup passphrase: ") if is_encrypted(path) else None
+        ok, lines = verify_backup(path, passphrase)
+        print("\n".join(lines))
+        return 0 if ok else 1
+    if not args.out:
+        print("Give --out FILE to write a backup, or --verify FILE to check one.")
+        return 1
     settings = load_settings()
-    out = backup(settings.database_path, Path(args.out))
-    print(f"Backup written and integrity-checked: {out}")
+    passphrase = None
+    if args.encrypt:
+        print(
+            "Choose a passphrase of at least 12 characters. It is not stored anywhere: "
+            "without it this backup can't be restored."
+        )
+        passphrase = _ask_secret("Backup passphrase: ", twice=True)
+    try:
+        out = backup(settings.database_path, Path(args.out), passphrase)
+    except (BackupError, FileExistsError, FileNotFoundError) as exc:
+        print(exc)
+        return 1
+    kind = "Encrypted backup" if passphrase else "Backup (NOT encrypted)"
+    print(f"{kind} written and integrity-checked: {out}")
+    print(f"Check it can be restored: python -m opsapp backup --verify {out}")
     return 0
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
-    from .persistence.backup import restore
+    from .persistence.backup import BackupError, is_encrypted, restore
 
     settings = load_settings()
     if not args.yes:
@@ -231,12 +276,51 @@ def cmd_restore(args: argparse.Namespace) -> int:
             "re-run with --yes."
         )
         return 1
-    restore(Path(args.source), settings.database_path)
+    source = Path(args.source)
+    if not source.is_file():
+        print(f"Backup not found: {source}")
+        return 1
+    passphrase = _ask_secret("Backup passphrase: ") if is_encrypted(source) else None
+    try:
+        restore(source, settings.database_path, passphrase)
+    except BackupError as exc:
+        print(exc)
+        return 1
     print(f"Restored {args.source} into {settings.database_path}.")
     return 0
 
 
-def cmd_audit(_args: argparse.Namespace) -> int:
+def cmd_user(args: argparse.Namespace) -> int:
+    from .domain.errors import DomainError
+
+    c = _container()
+    print(
+        "Choose a password of at least 12 characters. You will set up an authenticator app "
+        "the first time you sign in."
+    )
+    password = _ask_secret("Password: ", twice=True)
+    try:
+        c.auth.create_owner(args.company, args.name, args.email, password)
+    except DomainError as exc:
+        print(exc)
+        return 1
+    print(f"Owner {args.name} ({args.email.strip().lower()}) created in {args.company}.")
+    if c.settings.demo_mode:
+        print("Turn OPSAPP_DEMO_MODE off in .env to sign in with it.")
+    return 0
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    if args.action == "verify-export":
+        from .verify import verify_audit_export
+
+        if not args.file:
+            print("Give the exported file: python -m opsapp audit verify-export audit-log.json")
+            return 1
+        ok, message = verify_audit_export(Path(args.file).read_text(encoding="utf-8"))
+        print(message)
+        return 0 if ok else 1
+
     from sqlalchemy import select
 
     from .persistence.models import Tenant
@@ -304,15 +388,24 @@ def main(argv: list[str] | None = None) -> int:
     rd.add_argument("--out", required=True, help="new folder for the redacted copies")
     rd.add_argument("--names", help="text file with names to hide, one per line")
     rd.set_defaults(fn=cmd_redact)
-    bk = sub.add_parser("backup", help="write a consistent copy of the database")
-    bk.add_argument("--out", required=True)
+    us = sub.add_parser("user", help="create the first owner of a company")
+    us.add_argument("action", choices=["create"])
+    us.add_argument("--company", required=True, help="company name, as shown in the app")
+    us.add_argument("--name", required=True, help="your name")
+    us.add_argument("--email", required=True)
+    us.set_defaults(fn=cmd_user)
+    bk = sub.add_parser("backup", help="write a consistent copy of the database, or check one")
+    bk.add_argument("--out", help="backup file to write")
+    bk.add_argument("--encrypt", action="store_true", help="lock it with a passphrase")
+    bk.add_argument("--verify", metavar="FILE", help="check an existing backup instead")
     bk.set_defaults(fn=cmd_backup)
     rs = sub.add_parser("restore", help="replace the database with a backup")
     rs.add_argument("--from", dest="source", required=True)
     rs.add_argument("--yes", action="store_true")
     rs.set_defaults(fn=cmd_restore)
-    au = sub.add_parser("audit", help="verify audit hash chains")
-    au.add_argument("action", choices=["verify"])
+    au = sub.add_parser("audit", help="verify audit hash chains, or an exported log")
+    au.add_argument("action", choices=["verify", "verify-export"])
+    au.add_argument("file", nargs="?", help="exported audit-log.json (verify-export)")
     au.set_defaults(fn=cmd_audit)
     ex = sub.add_parser("export", help="export one workflow as redacted JSON")
     ex.add_argument("workflow_id")

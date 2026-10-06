@@ -46,6 +46,55 @@
 - Tests plant a secret and check it never appears in logs or exports, and scan the
   repository for credential patterns.
 
+## Sign-in and sessions (0.4.0)
+
+- **Passwords** are stored only as scrypt hashes (standard library; N=2^15, r=8, p=1, 16-byte
+  salt), never in plain text or logs. New passwords need at least 12 characters and are
+  refused if common, too simple, or containing the user's name or email.
+- **Second factor.** Every account needs a 6-digit code from an authenticator app (TOTP,
+  RFC 6238), set up by QR code at first sign-in. A code is accepted one 30-second step
+  early or late, and never twice. Ten one-time recovery codes are shown once and stored as
+  SHA-256 hashes. The authenticator secret itself is stored in the database, so anyone
+  with the database file could generate codes: keep backups encrypted.
+- **Lockout.** Five wrong passwords or codes lock the account for 15 minutes. The message
+  is the same whether the email, password or code was wrong, or the account is locked.
+  Each failure, lockout, sign-in and sign-out is in the audit log, without the password.
+- **Sessions** are stored on the server; the cookie holds only a random token whose SHA-256
+  is kept. A session ends at sign-out, after 30 minutes without activity, after 8 hours,
+  when the user is disabled, and when their password or authenticator is reset. The
+  cookie is HttpOnly and SameSite=Strict. It is not marked Secure, because the app is only
+  served over http://127.0.0.1; a hosted version must serve HTTPS and set it.
+- **Owners manage users** (`MANAGE_USERS`): add, disable, enable, reset password (a
+  16-character temporary password shown once, which must be changed at next sign-in) and
+  reset the authenticator. An owner can't disable or reset themselves. Nothing is emailed.
+- **Demo mode** (`OPSAPP_DEMO_MODE=true`) restores the no-password user picker for the
+  fictional data, behind a banner. The app refuses to start in demo mode if any user has a
+  password, and refuses to start with real sign-in unless `OPSAPP_SESSION_SECRET` is set.
+- **Web hardening.** Every response carries a strict content security policy (no scripts,
+  no inline styles, no framing), `X-Frame-Options: DENY`, `nosniff`, `no-referrer` and
+  `Cache-Control: no-store`. Request bodies over about 300 KB are refused with 413.
+
+## Backups and audit export (0.4.0)
+
+- `backup --encrypt` encrypts the backup with AES-256-GCM, using a key derived from a
+  passphrase by scrypt. The passphrase is typed in each time and stored nowhere; a lost
+  passphrase means a lost backup. A changed or damaged file fails to decrypt rather than
+  restoring bad data. The unencrypted copy exists only in a temporary folder while the
+  command runs.
+- `backup --verify` opens a backup in a temporary copy and checks SQLite integrity, the
+  schema version and every company's audit chain, without touching the live database.
+- Owners can download their company's audit log (`EXPORT_AUDIT`) as JSON, which states the
+  hash rule, or CSV (cells starting with a formula character are prefixed with `'`).
+  `audit verify-export` checks the JSON with a separately written, standard-library-only
+  checker.
+
+## Automatic checks (0.4.0)
+
+GitHub Actions (`.github/workflows/checks.yml`) runs Ruff, mypy, the tests, Bandit and
+pip-audit on every pull request and push to main, with read-only repository access and no
+secrets. A self-review against the OWASP Top 10 is in
+[security-review-0.4.0.md](security-review-0.4.0.md); it is not an independent audit.
+
 ## Application controls
 
 - **Server-side permissions.** Every action checks the role matrix
@@ -84,13 +133,15 @@
 
 ## Before any pilot with real data (not done)
 
+Done in 0.4.0: real sign-in with a second factor, encrypted backups with a restore check,
+audit export, automatic dependency and security scanning. Still open:
+
 See also the [pilot checklist](pilot-checklist.md).
 
 
-- Real authentication (SSO or passwords with MFA) and session management.
 - Hosting decision, TLS, and a managed database with encrypted, off-machine backups.
 - Data retention and deletion policy; customer data processing terms.
 - Review of the AI provider's data handling before sending any real text to it.
-- Security review and dependency scanning in CI.
+- An independent security review (0.4.0 has a self-review only).
 - Rate limiting and monitoring.
 - Explicit approval from Henry for each external connection.

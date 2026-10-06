@@ -1,0 +1,43 @@
+# Runs the same checks a contributor runs locally, on every pull request and push to main.
+# Uses GitHub-hosted runners (free minutes for a private repository). No secrets are needed:
+# the tests use no network and no API key.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Lint (Ruff)
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+      - name: Type check (mypy)
+        run: mypy src
+      - name: Tests (pytest)
+        run: pytest -q
+      - name: Security lint (Bandit)
+        run: bandit -r src -q
+      - name: Known vulnerable dependencies (pip-audit)
+        run: pip-audit --skip-editable --progress-spinner off

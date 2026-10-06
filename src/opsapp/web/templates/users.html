@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<div class="panel">
+  <table>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th>Sign-in</th><th></th></tr>
+    {% for u in rows %}
+    <tr>
+      <td>{{ u.display_name }}{% if not u.is_active %} <span class="badge">disabled</span>{% endif %}</td>
+      <td>{{ u.email }}</td>
+      <td>{{ u.role }}</td>
+      <td class="small">
+        {% if not u.has_password %}<span class="muted">No password (demo user)</span>
+        {% else %}
+          {% if u.second_factor %}Authenticator set up{% else %}<span class="muted">Authenticator not set up yet</span>{% endif %}
+          {% if u.must_change_password %}<br><span class="muted">Temporary password</span>{% endif %}
+          {% if u.locked %}<br><span class="badge s-failed">locked</span>{% endif %}
+        {% endif %}
+      </td>
+      <td class="small">
+        {% if u.id != user.id %}
+        <form method="post" action="/users/{{ u.id }}/reset-password" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="secondary compact">{% if u.has_password %}Reset password{% else %}Set a password{% endif %}</button></form>
+        {% if u.second_factor %}
+        <form method="post" action="/users/{{ u.id }}/reset-second-factor" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="secondary compact">Reset authenticator</button></form>
+        {% endif %}
+        {% if u.is_active %}
+        <form method="post" action="/users/{{ u.id }}/disable" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="danger compact">Disable</button></form>
+        {% else %}
+        <form method="post" action="/users/{{ u.id }}/enable" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="secondary compact">Enable</button></form>
+        {% endif %}
+        {% else %}<a href="/account">Your account</a>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+<div class="panel">
+  <h2>Add a user</h2>
+  <form method="post" action="/users">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <input name="display_name" placeholder="Name" required aria-label="Name">
+      <input type="email" name="email" placeholder="Email" required aria-label="Email">
+      <select name="role" aria-label="Role">
+        {% for r in roles %}<option value="{{ r.value }}"{% if r.value == 'operator' %} selected{% endif %}>{{ ROLE_TEXT[r] }}</option>{% endfor %}
+      </select>
+      <button>Add user</button>
+    </div>
+    <p class="small muted">You get a temporary password to hand over. They choose their own password and set up an
+      authenticator app at first sign-in. Nothing is emailed.</p>
+  </form>
+</div>
+{% endblock %}

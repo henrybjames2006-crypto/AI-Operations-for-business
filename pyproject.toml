@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opsapp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local prototype: request-to-quote workflow with approvals and simulated execution (fictional data only)."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -20,6 +20,8 @@ dependencies = [
     "itsdangerous>=2.2,<2.3",
     "tzdata>=2026.1",
     "anthropic>=1.11,<2",
+    "cryptography>=50,<51",
+    "segno>=1.6,<1.7",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +31,8 @@ dev = [
     "httpx>=0.28,<0.29",
     "ruff>=0.16,<0.17",
     "mypy>=2.4,<2.5",
+    "bandit>=1.9,<1.10",
+    "pip-audit>=2.10,<2.11",
 ]
 
 [project.scripts]

@@ -13,6 +13,7 @@ from .adapters.simulated import make_simulated_adapters
 from .ai.fallback import FallbackExtractor
 from .ai.mock import MockExtractor
 from .ai.ports import Extractor
+from .auth.service import AuthService
 from .clock import Clock
 from .config import Settings
 from .dispatch.worker import Dispatcher
@@ -30,6 +31,7 @@ class Container:
     clock: Clock
     service: WorkflowService
     adapters: dict[str, ActionAdapter]
+    auth: AuthService
 
     def dispatcher(
         self, worker_id: str = "dispatcher-1", backoff_base_seconds: float = 2.0
@@ -60,7 +62,9 @@ def build(
         sf, clock, make_extractor(settings, read_sf), max_request_chars=settings.max_request_chars
     )
     adapters: dict[str, ActionAdapter] = dict(make_simulated_adapters(sf, clock))
-    return Container(settings, engine, sf, read_sf, clock, service, adapters)
+    return Container(
+        settings, engine, sf, read_sf, clock, service, adapters, AuthService(sf, clock)
+    )
 
 
 def ai_spent_usd(read_sf: sessionmaker[Session]) -> Decimal:

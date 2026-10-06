@@ -29,3 +29,10 @@ def downgrade(database_path: Path | str, revision: str) -> None:
 
 def current(database_path: Path | str) -> None:
     command.current(alembic_config(database_path), verbose=False)
+
+
+def head_revision() -> str:
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(alembic_config("unused.sqlite")).get_current_head()
+    return str(head)
