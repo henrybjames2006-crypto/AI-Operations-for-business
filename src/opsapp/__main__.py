@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .config import load_settings
 from .redaction import configure_logging, redact
@@ -86,9 +86,31 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_samples(folder: str) -> list[Any] | None:
+    from .evals.samples import load_samples
+
+    cases, problems = load_samples(Path(folder))
+    if problems:
+        print("The samples could not be used:")
+        for p in problems:
+            print(f"  - {p}")
+        return None
+    return cases
+
+
 def cmd_eval(args: argparse.Namespace) -> int:
     if args.action == "compare":
         return _eval_compare(args)
+    if args.samples:
+        from .evals.runner import run_samples, write_samples_report
+
+        cases = _load_samples(args.samples)
+        if cases is None:
+            return 1
+        md, js = write_samples_report(run_samples(cases), Path(args.out))
+        print(md.read_text(encoding="utf-8").split("\n## Samples")[0])
+        print(f"Report: {md}\nData:   {js}")
+        return 0
     from .evals.runner import SCENARIO_CATEGORIES, run_all, write_report
 
     results = run_all()
@@ -120,6 +142,19 @@ def _eval_compare(args: argparse.Namespace) -> int:
             "OPSAPP_AI_API_KEY there (one line each), save, and run this again."
         )
         return 1
+    cases = None
+    if args.samples:
+        cases = _load_samples(args.samples)
+        if cases is None:
+            return 1
+        if not args.yes:
+            print(
+                f"This sends {len(cases)} redacted real requests to {settings.ai_model} (a "
+                f"paid API run by Anthropic). Only do this if the firm agreed to it, and read "
+                f"every redacted file first. Spending stops at ${settings.ai_budget_usd}. "
+                "Re-run with --yes to go ahead."
+            )
+            return 1
     if not args.yes:
         print(
             f"This sends about 70 fictional requests to {settings.ai_model} (a paid API). "
@@ -142,10 +177,38 @@ def _eval_compare(args: argparse.Namespace) -> int:
         spent["usd"] += Decimal(str(res.get("ai_cost_usd", "0")))
 
     label = f"anthropic/{settings.ai_model}"
-    data = run_compare(reader, label, after_case=track)
+    data = run_compare(reader, label, after_case=track, cases=cases)
     md, js = write_compare_report(data, Path(args.out))
     print(md.read_text(encoding="utf-8").split("\n## Cases where")[0])
     print(f"Report: {md}\nData:   {js}")
+    return 0
+
+
+def cmd_redact(args: argparse.Namespace) -> int:
+    from collections import Counter
+
+    from .discovery.redact import read_names, redact_folder
+
+    names = read_names(Path(args.names)) if args.names else []
+    try:
+        count, report = redact_folder(Path(args.source), Path(args.out), names)
+    except ValueError as exc:
+        print(exc)
+        return 1
+    kinds = Counter(r.kind for r in report)
+    print(f"Redacted {count} file(s) into {Path(args.out).resolve()}.")
+    print(
+        "Replaced: "
+        + (", ".join(f"{n} {k.lower()}" for k, n in sorted(kinds.items())) or "nothing")
+        + "."
+    )
+    if not names:
+        print("No names list was given, so people's and companies' names were NOT removed.")
+    print(
+        "Files are renamed sample-001.txt and so on, in alphabetical order of the originals.\n"
+        "Read every redacted file before sharing it: patterns miss things. Then fill in "
+        "labels.csv (see docs/discovery/labelling.md)."
+    )
     return 0
 
 
@@ -234,7 +297,13 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("action", choices=["run", "compare"])
     ev.add_argument("--out", default="reports")
     ev.add_argument("--yes", action="store_true", help="confirm the paid comparison run")
+    ev.add_argument("--samples", help="folder of redacted, labelled real samples")
     ev.set_defaults(fn=cmd_eval)
+    rd = sub.add_parser("redact", help="remove personal details from sample request files")
+    rd.add_argument("source", help="folder with the original .txt/.eml/.md files")
+    rd.add_argument("--out", required=True, help="new folder for the redacted copies")
+    rd.add_argument("--names", help="text file with names to hide, one per line")
+    rd.set_defaults(fn=cmd_redact)
     bk = sub.add_parser("backup", help="write a consistent copy of the database")
     bk.add_argument("--out", required=True)
     bk.set_defaults(fn=cmd_backup)
