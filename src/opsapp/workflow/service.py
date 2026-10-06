@@ -455,6 +455,14 @@ class WorkflowService:
             "site_mentions": output.site_mentions,
         }
         self._resolve_customer(s, wf, scope, req.sender, output.customer_mentions)
+        # What the reader and the record lookups proposed before any person changed
+        # anything. Kept unchanged so corrections can be measured (see workflow/measures.py).
+        scope["proposed"] = {
+            "customer_id": scope["customer_id"],
+            "site_id": scope["site_id"],
+            "items": {i["sku"]: i["quantity"] for i in scope["items"]},
+            "timeframe": scope["timeframe"],
+        }
         wf.scope = scope
         self._ensure_questions(s, wf)
         self._advance(s, wf, actor)

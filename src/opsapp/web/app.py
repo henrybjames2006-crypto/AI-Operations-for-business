@@ -30,6 +30,7 @@ from ..domain.money import format_usd
 from ..domain.roles import ROLE_TEXT, Permission, Role, has_permission
 from ..persistence.models import Tenant, User
 from ..redaction import redact
+from ..workflow import measures
 from ..workflow.catalog_import import MAX_BYTES as MAX_IMPORT_BYTES
 from . import views
 from .samples import SAMPLES
@@ -478,6 +479,29 @@ def create_app(
         with c.read_sf() as s:
             data = views.catalog_view(s, user)
         return render(request, "catalog.html", data, user=user)
+
+    @app.get("/measurements", response_class=HTMLResponse)
+    def measurements(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            rows = measures.measure(s, user.tenant_id)
+        return render(
+            request,
+            "measurements.html",
+            {"rows": rows, "summary": measures.summarize(rows), "stages": measures.STAGES},
+            user=user,
+        )
+
+    @app.get("/measurements.csv")
+    def measurements_csv(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            body = measures.to_csv(measures.measure(s, user.tenant_id))
+        return Response(
+            body,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="measurements.csv"'},
+        )
 
     @app.get("/catalog/template.csv")
     def catalog_template(request: Request) -> Response:
