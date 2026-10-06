@@ -1,4 +1,4 @@
-# AI Operations for Business (version 0.4.0 prototype)
+# AI Operations for Business (version 0.5.0 prototype)
 
 A local prototype of one workflow for small IT service firms:
 
@@ -14,6 +14,8 @@ rule-based reader by default; version 0.2.0 adds an optional Claude model as the
 request says, and fixed rules decide customers, prices and approvals. Version 0.3.0 adds
 tools for learning from real firms without putting their data in the app: a discovery
 kit, a local redaction tool for sample requests, price list import, and measurements.
+Version 0.5.0 lets a new firm be set up from nothing: its company, prices, pricing rules,
+customers and staff.
 
 Whether small IT service firms want this, or would pay for it, has not been tested. See
 [docs/limitations.md](docs/limitations.md).
@@ -35,6 +37,9 @@ Whether small IT service firms want this, or would pay for it, has not been test
 9. As the owner, import a price list from a CSV file as a draft and approve it.
 10. As the owner, add users, reset passwords and authenticator apps, disable users, and
     download the audit log.
+11. Set up a new, invented firm from nothing: create the company, then add its price list,
+    pricing rules, customers and sites, and staff, following the dashboard checklist. See
+    [docs/setup-a-firm.md](docs/setup-a-firm.md).
 
 ## Run it on Windows (PowerShell)
 
@@ -78,7 +83,8 @@ python -m opsapp user create --company "Brightline IT Services" --name "Your Nam
 python -m opsapp serve
 ```
 
-As that owner, open **Users** to give the demo users passwords. Demo mode can't be used on
+As that owner, open **Users** to give the demo users passwords. To set up a new firm
+instead of using the demo companies, follow [docs/setup-a-firm.md](docs/setup-a-firm.md). Demo mode can't be used on
 a database where anyone has a password; use a separate database for it.
 
 Open <http://127.0.0.1:8000>. The server only listens on 127.0.0.1.
@@ -96,7 +102,7 @@ Follow [docs/demo.md](docs/demo.md) for a five-minute walkthrough.
 ### Checks
 
 ```powershell
-python -m pytest                 # 298 tests, no network needed
+python -m pytest                 # 324 tests, no network needed
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy src
@@ -150,6 +156,7 @@ python -m opsapp restore --from backups\opsapp.opsbak --yes    # stop the server
 python -m opsapp export <workflow id> --out export.json      # redacted workflow history
 python -m opsapp recompute-quote <quote version id>          # independent recalculation
 python -m opsapp db current
+python -m opsapp company create "Firm name" --timezone America/Chicago --owner-name "Name" --owner-email you@example.com
 ```
 
 ### Start over
@@ -169,7 +176,8 @@ exports; see [docs/security.md](docs/security.md).
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
-  contains (current: [0.4.0](docs/versions/v0.4.0.md), Checkpoint 4)
+  contains (current: [0.5.0](docs/versions/v0.5.0.md), Checkpoint 5)
+- [docs/setup-a-firm.md](docs/setup-a-firm.md): set up a new firm from nothing
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results

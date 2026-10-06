@@ -20,10 +20,12 @@
       <a href="/approvals">Approval queue</a>
       <a href="/exceptions">Exceptions</a>
       <a href="/catalog">Catalog</a>
+      <a href="/customers">Customers</a>
       <a href="/measurements">Measurements</a>
       <a href="/audit">Audit log</a>
       <a href="/simulation">Simulation</a>
       {% if perm(Permission.MANAGE_USERS) %}<a href="/users">Users</a>{% endif %}
+      {% if perm(Permission.MANAGE_COMPANY) %}<a href="/company">Company</a>{% endif %}
     </nav>
     <span class="who"><a href="/account">{{ user.display_name }}</a> · <strong>{{ user.role }}</strong> · {{ tenant_name }}
       <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}">

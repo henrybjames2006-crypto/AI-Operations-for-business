@@ -127,6 +127,8 @@ class Customer(Base):
     aliases: Mapped[list[Any]] = mapped_column(JSON, default=list)
     email_domains: Mapped[list[Any]] = mapped_column(JSON, default=list)
     contact_email: Mapped[str] = mapped_column(String(200))
+    # Deactivated, never deleted, so old quotes keep their history (0.5.0).
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class CustomerSite(Base):
@@ -136,6 +138,7 @@ class CustomerSite(Base):
     customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), index=True)
     label: Mapped[str] = mapped_column(String(200))
     address: Mapped[str] = mapped_column(String(400))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class CustomerRequest(Base):

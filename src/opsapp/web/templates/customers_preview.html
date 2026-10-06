@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Check customer import{% endblock %}
+{% block content %}
+<h1>Check the customer import</h1>
+<div class="next">The file passed every check. <strong>Nothing has been saved yet.</strong> {{ customers|length }} customers with {{ site_count }} sites will be added.</div>
+<div class="panel">
+  <table>
+    <tr><th>Customer</th><th>Other names</th><th>Email domains</th><th>Contact</th><th>Sites</th></tr>
+    {% for cu in customers %}
+    <tr>
+      <td>{{ cu.fields.name }}</td>
+      <td class="small">{{ cu.fields.aliases|join(', ') }}</td>
+      <td class="small">{{ cu.fields.email_domains|join(', ') }}</td>
+      <td class="small">{{ cu.fields.contact_email }}</td>
+      <td class="small">{% for site in cu.sites %}<strong>{{ site.label }}</strong>: {{ site.address }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p></p>
+  <form method="post" action="/customers/import/confirm" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="payload" value="{{ payload }}">
+    <input type="hidden" name="sha256" value="{{ sha256 }}">
+    <button>Add these customers</button>
+  </form>
+  <a class="button secondary" href="/customers">Cancel</a>
+</div>
+{% endblock %}

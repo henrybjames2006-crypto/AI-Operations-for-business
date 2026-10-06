@@ -6,7 +6,7 @@ from collections import Counter
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..authz import get_scoped, load_actor, require
@@ -39,6 +39,7 @@ from ..persistence.models import (
 )
 from ..workflow.audit import verify_chain
 from ..workflow.catalog_import import to_csv
+from ..workflow.firm import describe_rule, setup_checklist
 from ..workflow.service import ACTION_LABELS, TIMEFRAMES, WorkflowService
 
 TIMEFRAME_TEXT = {
@@ -130,7 +131,10 @@ def workflow_detail(
         list(
             s.scalars(
                 select(CustomerSite)
-                .where(CustomerSite.customer_id == customer.id)
+                .where(
+                    CustomerSite.customer_id == customer.id,
+                    (CustomerSite.active.is_(True)) | (CustomerSite.id == scope.get("site_id")),
+                )
                 .order_by(CustomerSite.label)
             )
         )
@@ -254,7 +258,10 @@ def workflow_detail(
         "customers": list(
             s.scalars(
                 select(Customer)
-                .where(Customer.tenant_id == actor.tenant_id)
+                .where(
+                    Customer.tenant_id == actor.tenant_id,
+                    (Customer.active.is_(True)) | (Customer.id == scope.get("customer_id")),
+                )
                 .order_by(Customer.name)
             )
         ),
@@ -380,6 +387,7 @@ def dashboard(s: Session, actor: User) -> dict[str, Any]:
         )
     ).all()
     return {
+        "setup": dashboard_setup(s, actor),
         "rows": rows,
         "counts": {LABEL[st]: counts.get(st.value, 0) for st in State},
         "total": total,
@@ -435,7 +443,7 @@ def catalog_view(s: Session, actor: User) -> dict[str, Any]:
             .order_by(CatalogItem.sku)
         )
     }
-    versions = []
+    versions: list[dict[str, Any]] = []
     for pv in s.scalars(
         select(PricingVersion)
         .where(PricingVersion.tenant_id == actor.tenant_id)
@@ -459,12 +467,91 @@ def catalog_view(s: Session, actor: User) -> dict[str, Any]:
                 else [],
             }
         )
+    draft = next((v for v in versions if v["pv"].status == "draft"), None)
+    approved = next((v for v in versions if v["pv"].status == "approved"), None)
+    base = draft or approved
     return {
         "items": [i for i in items.values() if i.active],
         "versions": versions,
         "can_manage": has_permission(Role(actor.role), Permission.MANAGE_CATALOG),
         "import_problems": [],
+        "describe_rule": describe_rule,
+        "rules_target": base["pv"] if base else None,
+        "rule_skus": [(item.sku, item.name) for item, _e in base["entries"]] if base else [],
     }
+
+
+def customers_view(s: Session, actor: User) -> dict[str, Any]:
+    require(actor, Permission.VIEW)
+    customers = s.scalars(
+        select(Customer).where(Customer.tenant_id == actor.tenant_id).order_by(Customer.name)
+    ).all()
+    sites: dict[str, list[CustomerSite]] = {}
+    for site in s.scalars(
+        select(CustomerSite)
+        .where(CustomerSite.tenant_id == actor.tenant_id, CustomerSite.active.is_(True))
+        .order_by(CustomerSite.label)
+    ):
+        sites.setdefault(site.customer_id, []).append(site)
+    return {
+        "active": [(c, sites.get(c.id, [])) for c in customers if c.active],
+        "inactive": [c for c in customers if not c.active],
+        "can_manage": has_permission(Role(actor.role), Permission.MANAGE_CUSTOMERS),
+        "import_problems": [],
+    }
+
+
+def customer_detail(s: Session, actor: User, customer_id: str) -> dict[str, Any]:
+    require(actor, Permission.VIEW)
+    customer = get_scoped(s, Customer, customer_id, actor.tenant_id)
+    sites = s.scalars(
+        select(CustomerSite)
+        .where(CustomerSite.customer_id == customer.id, CustomerSite.active.is_(True))
+        .order_by(CustomerSite.label)
+    ).all()
+    quotes = s.scalar(
+        select(func.count(func.distinct(QuoteVersion.quote_id))).where(
+            QuoteVersion.tenant_id == actor.tenant_id, QuoteVersion.customer_id == customer.id
+        )
+    )
+    history = [
+        e
+        for e in s.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.tenant_id == actor.tenant_id, AuditEvent.workflow_id.is_(None))
+            .order_by(AuditEvent.seq.desc())
+        )
+        if (e.data or {}).get("customer_id") == customer.id
+    ][:20]
+    return {
+        "customer": customer,
+        "sites": sites,
+        "quotes": quotes or 0,
+        "history": history,
+        "can_manage": has_permission(Role(actor.role), Permission.MANAGE_CUSTOMERS),
+    }
+
+
+def company_view(s: Session, actor: User) -> dict[str, Any]:
+    require(actor, Permission.MANAGE_COMPANY)
+    tenant = s.get(Tenant, actor.tenant_id)
+    return {"tenant": tenant, "timezones": sorted(_common_timezones())}
+
+
+def _common_timezones() -> set[str]:
+    from zoneinfo import available_timezones
+
+    return {
+        z
+        for z in available_timezones()
+        if "/" in z and z.split("/")[0] in {"America", "Europe", "Australia", "Pacific", "Asia"}
+    }
+
+
+def dashboard_setup(s: Session, actor: User) -> list[dict[str, Any]]:
+    """The setup checklist, or an empty list once every step is done."""
+    steps = setup_checklist(s, actor.tenant_id)
+    return [] if all(step["done"] for step in steps) else steps
 
 
 def catalog_csv(s: Session, actor: User) -> str:

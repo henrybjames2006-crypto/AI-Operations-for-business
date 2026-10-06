@@ -121,3 +121,17 @@ With demo mode off and your own owner account (README, "Real sign-in"):
 5. Open **Audit log** and download **JSON**. Check it with
    `python -m opsapp audit verify-export audit-log.json`.
 
+## 9. Set up a new firm (0.5.0)
+
+Follow [setup-a-firm.md](setup-a-firm.md) with an invented firm, in a separate database.
+In the demo companies you can also try the new pages directly:
+
+1. As **Priya Shah** (operator), open **Customers**, add a customer and two sites, then
+   remove one site. Open the customer's page to see its changes.
+2. Under **Import customers from a CSV file**, click **Download an example file**, check it,
+   and add the customers. Try a file with a cell starting with `=`: it is refused and
+   nothing is saved.
+3. As **Dana Ortiz** (owner), open **Catalog** and add a trip fee under **Pricing rules**.
+   It goes into the open draft (version 4 in the demo data); approve it to use it.
+4. Open **Company** to change the company name or time zone.
+

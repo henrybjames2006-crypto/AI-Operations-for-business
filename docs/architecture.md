@@ -161,3 +161,25 @@ a unique index on email, and the `auth_sessions` and `recovery_codes` tables.
 `workflow/audit_export.py` writes the audit log export; `verify.verify_audit_export` checks
 it independently.
 
+## Firm setup (0.5.0)
+
+`AuthService.create_company` makes a tenant and its first owner in one transaction, with a
+`company_created` audit event as the first link of the new tenant's chain.
+`workflow/firm.py` (`FirmService`, on the container as `c.firm`) holds the setup use
+cases. It runs each one through `WorkflowService._run`, so permission checks, tenant
+scoping and audit events work as for the workflow:
+
+- customers and sites: `save_customer`, `set_customer_active`, `save_site`, `remove_site`;
+- the customer CSV import: `check_customer_import` (no writes) and `import_customers`,
+  which re-checks the file and its SHA-256 from the preview;
+- pricing rules: `add_pricing_rule` and `remove_pricing_rule` edit the open draft, or a
+  new draft that copies the approved version's price entries and rules
+  (`catalog_changes` stays empty, so approval leaves the services as they are);
+- company settings: `update_company`.
+
+`workflow/customer_import.py` holds the checks shared by the form and the CSV import.
+Migration 0004 adds `active` to `customers` and `customer_sites`. The reader's context,
+customer matching, clarification options and quote edits only use active ones; a request
+or quote that already points at a deactivated customer or removed site keeps it.
+`firm.setup_checklist` drives the dashboard checklist.
+

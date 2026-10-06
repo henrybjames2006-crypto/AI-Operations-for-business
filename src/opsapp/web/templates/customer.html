@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/customers">Customers</a></p>
+<h1>{{ customer.name }}{% if not customer.active %} <span class="badge">deactivated</span>{% endif %}</h1>
+<p class="muted small">Used on {{ quotes }} quote{{ '' if quotes == 1 else 's' }}.</p>
+{% if can_manage and customer.active %}
+<div class="grid">
+<div class="panel">
+  <h2>Details</h2>
+  <form method="post" action="/customers/{{ customer.id }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><label>Name<br><input name="name" value="{{ customer.name }}" required maxlength="200"></label></p>
+    <p><label>Other names it goes by <span class="small muted">(separate with commas)</span><br><input name="other_names" value="{{ customer.aliases|join(', ') }}"></label></p>
+    <p><label>Email domains <span class="small muted">(separate with commas)</span><br><input name="email_domains" value="{{ customer.email_domains|join(', ') }}"></label></p>
+    <p><label>Contact email<br><input type="email" name="contact_email" value="{{ customer.contact_email }}" required></label></p>
+    <button>Save details</button>
+  </form>
+</div>
+<div class="panel">
+  <h2>Sites</h2>
+  {% for site in sites %}
+  <form method="post" action="/customers/{{ customer.id }}/sites/{{ site.id }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <input name="label" value="{{ site.label }}" required aria-label="Site label" maxlength="100">
+      <input name="address" value="{{ site.address }}" required aria-label="Address" maxlength="400">
+      <button class="secondary compact">Save</button>
+    </div>
+  </form>
+  <form method="post" action="/customers/{{ customer.id }}/sites/{{ site.id }}/remove" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="danger compact">Remove {{ site.label }}</button>
+  </form>
+  {% else %}<p class="flag">No sites yet. A quote needs a site.</p>{% endfor %}
+  <h3>Add a site</h3>
+  <form method="post" action="/customers/{{ customer.id }}/sites">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <input name="label" placeholder="Label, e.g. Main office" required aria-label="Site label" maxlength="100">
+      <input name="address" placeholder="Address" required aria-label="Address" maxlength="400">
+      <button>Add site</button>
+    </div>
+  </form>
+</div>
+</div>
+<div class="panel">
+  <h2>Deactivate</h2>
+  <p class="small">New requests can't use a deactivated customer. Requests and quotes that already use it are unchanged, and you can reactivate it later.</p>
+  <form method="post" action="/customers/{{ customer.id }}/deactivate"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="danger">Deactivate {{ customer.name }}</button></form>
+</div>
+{% else %}
+<div class="panel">
+  <p>Other names: {{ customer.aliases|join(', ') or 'none' }}<br>
+     Email domains: {{ customer.email_domains|join(', ') or 'none' }}<br>
+     Contact: {{ customer.contact_email }}</p>
+  <h3>Sites</h3>
+  <ul>{% for site in sites %}<li><strong>{{ site.label }}</strong>: {{ site.address }}</li>{% else %}<li class="muted">No sites.</li>{% endfor %}</ul>
+  {% if can_manage and not customer.active %}
+  <form method="post" action="/customers/{{ customer.id }}/reactivate"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button>Reactivate {{ customer.name }}</button></form>
+  {% endif %}
+</div>
+{% endif %}
+{% if history %}
+<div class="panel">
+  <h2>Changes</h2>
+  <table class="events">{% for e in history %}<tr><td class="small muted">{{ e.at|dt }}</td><td>{{ e.message }}</td></tr>{% endfor %}</table>
+</div>
+{% endif %}
+{% endblock %}

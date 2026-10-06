@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<h1>Customers</h1>
+<p class="muted">The request reader matches requests to these customers by their email domain or by name. Customers are deactivated rather than deleted, so past quotes keep their history.</p>
+<div class="panel">
+  {% if active %}
+  <table>
+    <tr><th>Customer</th><th>Other names</th><th>Email domains</th><th>Contact</th><th>Sites</th></tr>
+    {% for cu, sites in active %}
+    <tr>
+      <td><a href="/customers/{{ cu.id }}">{{ cu.name }}</a></td>
+      <td class="small">{{ cu.aliases|join(', ') }}</td>
+      <td class="small">{{ cu.email_domains|join(', ') }}</td>
+      <td class="small">{{ cu.contact_email }}</td>
+      <td class="small">{% for site in sites %}{{ site.label }}{% if not loop.last %}, {% endif %}{% else %}<span class="flag">No sites yet</span>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No customers yet.</p>{% endif %}
+  {% if inactive %}
+  <p class="small muted">Deactivated: {% for cu in inactive %}<a href="/customers/{{ cu.id }}">{{ cu.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% endif %}
+</div>
+{% if can_manage %}
+<div class="grid">
+<div class="panel">
+  <h2>Add a customer</h2>
+  <form method="post" action="/customers">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><label>Name<br><input name="name" required maxlength="200"></label></p>
+    <p><label>Other names it goes by <span class="small muted">(optional, separate with commas)</span><br><input name="other_names" maxlength="2000"></label></p>
+    <p><label>Email domains <span class="small muted">(the part after @, separate with commas)</span><br><input name="email_domains" placeholder="example.com"></label></p>
+    <p><label>Contact email<br><input type="email" name="contact_email" required></label></p>
+    <button>Add customer</button>
+  </form>
+</div>
+<div class="panel">
+  <h2>Import customers from a CSV file</h2>
+  <p class="small">One row per site. Rows with the same customer name make one customer with several sites. You see a preview before anything is saved, and a file with any problem saves nothing.</p>
+  <p class="small">Columns: <code>customer_name, other_names, email_domains, contact_email, site_label, site_address</code>. Separate several names or domains with <code>;</code>. <a href="/customers/template.csv">Download an example file</a>.</p>
+  {% if import_problems %}
+  <div class="msg error"><strong>The file was not imported. Nothing was saved.</strong>
+    <ul>{% for p in import_problems %}<li>{{ p }}</li>{% endfor %}</ul></div>
+  {% endif %}
+  <form method="post" action="/customers/import" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="file" accept=".csv,text/csv" required>
+    <button>Check the file</button>
+  </form>
+</div>
+</div>
+{% endif %}
+{% endblock %}

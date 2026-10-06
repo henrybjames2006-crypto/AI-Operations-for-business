@@ -495,41 +495,111 @@ class AuthService:
 
     def create_owner(self, company: str, display_name: str, email: str, password: str) -> str:
         """First owner of a company, from the command line. Returns the user id."""
-        address = _normalize_email(email)
-        problems = password_problems(password, address, display_name)
-        if problems:
-            raise ValidationError(" ".join(problems))
-        if "@" not in address or " " in address:
-            raise ValidationError("Enter a valid email address.")
+        address = self._check_new_owner(display_name, email, password)
         with self.sf.begin() as s:
             tenants = list(s.scalars(select(Tenant).order_by(Tenant.name)))
             matches = [t for t in tenants if t.name.lower() == company.strip().lower()]
             if not matches:
-                names = ", ".join(t.name for t in tenants) or "none (run seed first)"
-                raise NotFound(f"No company called {company!r}. Companies: {names}.")
-            if s.scalars(select(User).where(User.email == address)).first() is not None:
-                raise Conflict("A user with that email address already exists.")
-            user = User(
-                id=new_id("user"),
-                tenant_id=matches[0].id,
-                display_name=display_name.strip(),
-                email=address,
-                role=Role.OWNER.value,
-                is_active=True,
-                password_hash=hash_password(password),
-                password_changed_at=self.clock.now(),
-                failed_logins=0,
+                names = ", ".join(t.name for t in tenants) or "none yet"
+                raise NotFound(
+                    f"No company called {company!r}. Companies: {names}. Create one with: "
+                    "python -m opsapp company create"
+                )
+            return self._add_owner(s, matches[0], display_name, address, password)
+
+    def create_company(
+        self, name: str, timezone: str, owner_name: str, owner_email: str, password: str
+    ) -> str:
+        """An empty company and its first owner, in one step. Returns the company id.
+
+        Works on a fresh database without the demo data. The company starts with no
+        services, prices, customers or other users; the owner adds them in the app.
+        """
+        company = " ".join(name.split())
+        if not 2 <= len(company) <= 100:
+            raise ValidationError("The company name must be 2 to 100 characters.")
+        zone = check_timezone(timezone)
+        address = self._check_new_owner(owner_name, owner_email, password)
+        with self.sf.begin() as s:
+            taken = s.scalars(select(Tenant).where(func.lower(Tenant.name) == company.lower()))
+            if taken.first() is not None:
+                raise Conflict(f"A company called {company!r} already exists.")
+            tenant = Tenant(
+                id=new_id("tenant"),
+                name=company,
+                currency="USD",
+                timezone=zone,
+                created_at=self.clock.now(),
             )
-            s.add(user)
+            s.add(tenant)
             s.flush()
-            self._audit(
+            audit.append(
                 s,
-                user,
-                "user_added",
-                f"{user.display_name} was added as owner from the command line.",
-                actor="system",
+                tenant_id=tenant.id,
+                event_type="company_created",
+                message=f"Company {company} created from the command line (time zone {zone}, "
+                f"currency USD).",
+                at=self.clock.now(),
+                actor_type="system",
+                data={"name": company, "timezone": zone},
             )
-            return user.id
+            self._add_owner(s, tenant, owner_name, address, password)
+            return tenant.id
+
+    def _check_new_owner(self, display_name: str, email: str, password: str) -> str:
+        address = _normalize_email(email)
+        if not display_name.strip() or len(display_name.strip()) > 100:
+            raise ValidationError("Enter a name of up to 100 characters.")
+        if "@" not in address or " " in address:
+            raise ValidationError("Enter a valid email address.")
+        problems = password_problems(password, address, display_name)
+        if problems:
+            raise ValidationError(" ".join(problems))
+        return address
+
+    def _add_owner(
+        self, s: Session, tenant: Tenant, display_name: str, address: str, password: str
+    ) -> str:
+        if s.scalars(select(User).where(User.email == address)).first() is not None:
+            raise Conflict("A user with that email address already exists.")
+        user = User(
+            id=new_id("user"),
+            tenant_id=tenant.id,
+            display_name=display_name.strip(),
+            email=address,
+            role=Role.OWNER.value,
+            is_active=True,
+            password_hash=hash_password(password),
+            password_changed_at=self.clock.now(),
+            failed_logins=0,
+        )
+        s.add(user)
+        s.flush()
+        self._audit(
+            s,
+            user,
+            "user_added",
+            f"{user.display_name} was added as owner from the command line.",
+            actor="system",
+        )
+        return user.id
+
+
+def check_timezone(name: str) -> str:
+    """A time zone name such as Europe/London, checked against the time zone database."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
+
+    zone = name.strip()
+    if zone not in available_timezones():
+        raise ValidationError(
+            f"Unknown time zone {zone!r}. Use a name such as America/Chicago, "
+            "America/New_York or Europe/London."
+        )
+    try:
+        ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:  # pragma: no cover - listed but broken
+        raise ValidationError(f"Time zone {zone!r} can't be loaded.") from exc
+    return zone
 
 
 def any_password_set(sf: sessionmaker[Session]) -> bool:

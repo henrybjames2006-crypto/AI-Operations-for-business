@@ -1,7 +1,7 @@
 # Pilot checklist
 
 What must be true before one real IT service firm uses this app with real work, what to
-measure while it does, and when to stop. Version 0.4.0 does **not** meet this checklist
+measure while it does, and when to stop. Version 0.5.0 does **not** meet this checklist
 yet: hosting, off-machine backups, an independent review and the agreement with the firm
 are still open.
 
@@ -33,10 +33,14 @@ are still open.
 
 **Setup**
 
+- [ ] The firm has its own company in its own database (`python -m opsapp company
+      create`, 0.5.0), with no demo data. See [setup-a-firm.md](setup-a-firm.md).
 - [ ] The firm's price list is imported (Catalog, Import a price list) and approved by
-      the firm's owner.
-- [ ] Their customers and sites are entered.
+      the firm's owner, and its pricing rules entered (Catalog, Pricing rules, 0.5.0).
+- [ ] Their customers and sites are entered (Customers page or customer CSV import,
+      0.5.0).
 - [ ] Two people are set up at least: one who prepares quotes and one who approves.
+      The dashboard's setup checklist shows when these three are done.
 - [ ] A short walkthrough with the people who will use it.
 
 ## 2. What to measure during the pilot

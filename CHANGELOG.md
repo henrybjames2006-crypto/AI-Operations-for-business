@@ -5,7 +5,35 @@ All notable changes, one entry per version. Each version has a full page in
 
 ## [Unreleased]
 
-Nothing yet. Next: to be planned with Henry (hosting for a pilot, or more discovery work).
+Nothing yet. Next: to be planned with Henry.
+
+## [0.5.0] - 2026-10-06 (Checkpoint 5)
+
+Full details: [docs/versions/v0.5.0.md](docs/versions/v0.5.0.md)
+
+### Added
+- `python -m opsapp company create` makes an empty company and its first owner, without
+  the demo data.
+- A first price list can be imported into a company with no prices yet.
+- Pricing rules editor on Catalog (owner): volume discount, minimum charge and trip fee,
+  saved in a draft pricing version that is approved as before.
+- Customers page (owner and operator): add and edit customers and their sites, remove
+  sites, deactivate and reactivate customers. Every change is audited.
+- Customer CSV import with a preview before saving; all-or-nothing, formula cells refused.
+- Company settings page (owner): name and time zone.
+- Setup checklist on the dashboard for a new company.
+- [Set up a firm](docs/setup-a-firm.md) guide.
+
+### Changed
+- Database migration 0004 adds an `active` flag to customers and sites. Deactivated
+  customers and removed sites are no longer offered for new requests; old ones keep them.
+- New permissions: `manage_customers` (owner, operator) and `manage_company` (owner).
+- Customer names, other names and email domains must not overlap between active customers,
+  and shared mail domains such as gmail.com are refused.
+
+### Fixed
+- A second message on the same page could be lost (session not saved after an in-place
+  change).
 
 ## [0.4.0] - 2026-10-06 (Checkpoint 4)
 

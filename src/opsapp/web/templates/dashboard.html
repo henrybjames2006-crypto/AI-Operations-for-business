@@ -2,6 +2,13 @@
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <h1>Dashboard</h1>
+{% if setup %}
+<div class="panel">
+  <h2>Set up your company</h2>
+  <p class="small muted">Three steps before a request can go all the way to an approved quote. This list disappears once they are done.</p>
+  <ul class="checklist">{% for step in setup %}<li class="{{ 'done' if step.done else 'todo' }}">{{ '✓' if step.done else '○' }} {% if step.done %}{{ step.text }}{% else %}<a href="{{ step.link }}">{{ step.text }}</a>{% endif %}</li>{% endfor %}</ul>
+</div>
+{% endif %}
 <div class="stats">
   <div class="stat"><div class="n">{{ total }}</div><div class="l">Workflows</div></div>
   <div class="stat"><div class="n">{{ completed }}</div><div class="l">Completed (simulated)</div></div>

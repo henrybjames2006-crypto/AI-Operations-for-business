@@ -28,6 +28,10 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert {"workflows", "quote_versions", "audit_events", "outbox", "auth_sessions"} <= tables
+    migrate.downgrade(db, "-1")  # 0004: the active flags go
+    cust_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(customers)")}
+    site_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(customer_sites)")}
+    assert "active" not in cust_cols and "active" not in site_cols and "name" in cust_cols
     migrate.downgrade(db, "-1")  # 0003: sign-in tables and columns go
     names = {
         r[0]

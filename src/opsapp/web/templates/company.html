@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Company settings{% endblock %}
+{% block content %}
+<h1>Company settings</h1>
+<div class="panel">
+  <form method="post" action="/company">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <p><label>Company name<br><input name="name" value="{{ tenant.name }}" required maxlength="100"></label></p>
+    <p><label>Time zone <span class="small muted">(used for proposed schedule times)</span><br>
+      <select name="timezone">
+        {% if tenant.timezone not in timezones %}<option selected>{{ tenant.timezone }}</option>{% endif %}
+        {% for z in timezones %}<option{% if z == tenant.timezone %} selected{% endif %}>{{ z }}</option>{% endfor %}
+      </select></label></p>
+    <p class="small muted">Currency: {{ tenant.currency }} (the only currency in this prototype). Tax is not calculated.</p>
+    <button>Save settings</button>
+  </form>
+</div>
+{% endblock %}
