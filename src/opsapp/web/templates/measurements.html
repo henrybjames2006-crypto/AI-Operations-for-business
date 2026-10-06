@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Measurements{% endblock %}
+{% block content %}
+<h1>Measurements</h1>
+<p class="muted">Measured from how this copy of the app has actually been used: timings from the audit log, and how often a person changed what the request reader proposed. Nothing is estimated. With the fictional demo data these numbers describe demo clicks, not real work.</p>
+<p><a href="/measurements.csv">Download as CSV</a> (one row per workflow)</p>
+<div class="panel">
+  <h2>Time per step</h2>
+  <table><tr><th>Step</th><th class="num">Workflows</th><th class="num">Median</th><th class="num">Average</th><th class="num">Longest</th></tr>
+  {% for st in summary.stages %}<tr><td>{{ st.label }}</td><td class="num">{{ st.n }}</td>
+    <td class="num">{{ '%.1f min'|format(st.median) if st.median is not none else 'n/a' }}</td>
+    <td class="num">{{ '%.1f min'|format(st.mean) if st.mean is not none else 'n/a' }}</td>
+    <td class="num">{{ '%.1f min'|format(st.max) if st.max is not none else 'n/a' }}</td></tr>{% endfor %}
+  </table>
+  <p class="small muted">"Received to draft ready" includes any time spent waiting for answers to clarification questions.</p>
+</div>
+<div class="panel">
+  <h2>Corrections to what the reader proposed</h2>
+  <p class="small">Compared with the latest quote of each workflow. <strong>Kept</strong>: used as proposed. <strong>Filled in</strong>: nothing was proposed and a person supplied it. <strong>Changed</strong>: a person replaced or removed what was proposed.</p>
+  <table><tr><th>Field</th><th class="num">Workflows with a quote</th><th class="num">Kept</th><th class="num">Filled in</th><th class="num">Changed</th></tr>
+  {% for f in summary.fields %}<tr><td>{{ f.field|capitalize }}</td><td class="num">{{ f.n }}</td><td class="num">{{ f.kept }}</td><td class="num">{{ f.filled }}</td><td class="num">{{ f.changed }}</td></tr>{% endfor %}
+  </table>
+  {% if summary.not_measurable %}<p class="small muted">{{ summary.not_measurable }} workflow(s) have no quote yet, or were created before version 0.3.0 recorded the reader's proposal, so corrections can't be measured for them.</p>{% endif %}
+</div>
+<div class="panel">
+  <h2>Per workflow</h2>
+  {% if rows %}
+  <table><tr><th>Received</th><th>Status</th><th>Read by</th>{% for k, label in stages %}<th class="num">{{ label }}</th>{% endfor %}<th>Customer</th><th>Site</th><th>Items</th><th>Timeframe</th></tr>
+  {% for r in rows %}<tr><td class="small"><a href="/workflows/{{ r.workflow_id }}">{{ r.received_at|dt }}</a></td><td>{{ r.state|replace('_', ' ') }}</td><td class="small"><code>{{ r.reader }}</code></td>
+    {% for k, label in stages %}<td class="num">{{ '%.1f'|format(r.minutes[k]) if r.minutes[k] is not none else '' }}</td>{% endfor %}
+    {% for f in ['customer', 'site', 'items', 'timeframe'] %}<td class="small">{{ r.corrections[f] or '' }}</td>{% endfor %}</tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">No workflows yet.</p>{% endif %}
+</div>
+{% endblock %}

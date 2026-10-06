@@ -5,8 +5,42 @@ All notable changes, one entry per version. Each version has a full page in
 
 ## [Unreleased]
 
-Nothing yet. Next planned: version 0.3.0 (Checkpoint 3), discovery kit and pilot readiness.
-Needs approval before starting.
+Nothing yet. Next planned: Checkpoint 4, real sign-in and hardening. Needs approval before
+starting.
+
+## [0.3.0] - 2026-10-06 (Checkpoint 3)
+
+Full details: [docs/versions/v0.3.0.md](docs/versions/v0.3.0.md)
+
+### Added
+- Discovery kit in `docs/discovery/`: hypotheses to test, interview guide with consent
+  wording, notes template, interview tracker and labelling guide.
+- `python -m opsapp redact`: copies sample requests into a new folder with emails, phone
+  numbers, addresses, postcodes, links, IP addresses, secrets and listed names replaced.
+  Offline, no AI, originals untouched.
+- `eval run --samples` and `eval compare --samples` to score the readers on redacted,
+  labelled real requests.
+- Price list import from CSV on the Catalog page: strict checks with one message per bad
+  row, saved as a draft pricing version, applied only on approval. Template download and
+  a discard button for drafts.
+- Measurements page and CSV: time per step from the audit log, and how often people kept,
+  filled in or changed what the reader proposed.
+- Pilot checklist (`docs/pilot-checklist.md`).
+
+### Changed
+- A reader that gives a customer's full listed name is accepted when the request uses one
+  of that customer's aliases (the "Summit Bakery" case from the 0.2.0 comparison). The AI
+  prompt now asks for the name as written in the request.
+- A site label that is part of a customer's name is no longer taken as the site.
+- The demo guide says that only the owner runs the dispatcher from the Simulation page.
+- Database migration 0002 adds the pending catalog changes of imported pricing versions.
+
+### Known limitations
+- No real customer data in the app yet; real sign-in and hosting are Checkpoint 4.
+- Redaction is pattern-based: names not in the list and unusual formats are missed.
+- Rule-based reader: 17 of 30 held-out cases fully correct (the site fix was prompted by a
+  held-out case, so this one is no longer an unseen result).
+- The AI comparison was not re-run after the name fix.
 
 ## [0.2.0] - 2026-10-05 (Checkpoint 2)
 

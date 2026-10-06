@@ -65,7 +65,27 @@
 - **Idempotent execution.** Each action has an idempotency key; uncertain outcomes are
   reconciled by lookup before any resend, and unresolved ones escalate to a person.
 
+## Real data and imports (0.3.0)
+
+- **Real samples stay out of the app.** `python -m opsapp redact` works on files on the
+  user's computer, offline, without AI, and never changes the originals. It refuses an
+  output folder inside the originals folder, renames output files, and its report never
+  contains original values. Redaction is pattern-based and misses names not in the list
+  and unusual formats, so a person reads every redacted file before it is shared. See
+  [ADR 0007](adr/0007-real-data-stays-outside-the-app.md).
+- **Sending samples to the AI** (`eval compare --samples`) needs `--yes` and the firm's
+  agreement, and sends only redacted text.
+- **Price list import** is owner-only (`MANAGE_CATALOG`), limited to 200 KB and 200 rows,
+  all-or-nothing, and creates a draft that changes nothing until approved. Cells starting
+  with `=`, `+`, `@`, tab or carriage return are refused (CSV formula injection). Each
+  import is audited with the file's SHA-256.
+- **Measurements** are read-only, tenant-scoped, and contain workflow ids, timings and
+  outcome words, not request text.
+
 ## Before any pilot with real data (not done)
+
+See also the [pilot checklist](pilot-checklist.md).
+
 
 - Real authentication (SSO or passwords with MFA) and session management.
 - Hosting decision, TLS, and a managed database with encrypted, off-machine backups.

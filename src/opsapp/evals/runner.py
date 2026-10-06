@@ -134,7 +134,9 @@ def score_extraction(r: Run, case: Case) -> dict[str, Any]:
     scope = wf.scope
     qs = r.questions(wf_id)
     checks: dict[str, bool] = {}
-    if case.customer == "ask":
+    if case.customer is None:
+        pass  # labelled real samples: the customer is not scored (see evals/samples.py)
+    elif case.customer == "ask":
         checks["customer"] = scope.get("customer_id") is None and any(
             q.kind == "choose_customer" for q in qs
         )
@@ -295,6 +297,8 @@ def ratio(a: int, b: int) -> str:
 
 
 def split_of(case_category: str) -> str:
+    if case_category == "sample":
+        return "samples"
     return "heldout" if case_category.startswith("heldout") else "original"
 
 
@@ -432,6 +436,43 @@ CAVEAT = (
 )
 
 
+SAMPLES_CAVEAT = (
+    "These numbers measure reading on a small set of redacted real requests, labelled by "
+    "hand against the demo catalog. The customer is not scored. They are not evidence of "
+    "time saved, acceptable error rates for a real firm, or demand."
+)
+
+
+def run_samples(cases: list[Case], reader: ReaderFactory | None = None) -> dict[str, Any]:
+    results = run_cases(cases, reader)
+    return {"summary": reading_summary(results), "results": results}
+
+
+def write_samples_report(data: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    s = data["summary"]
+    lines = [
+        "# Labelled samples: rule-based reader",
+        "",
+        SAMPLES_CAVEAT,
+        "",
+        "| Metric | Result |",
+        "| --- | --- |",
+        f"| Samples fully correct | {s['cases_fully_correct']} |",
+        f"| Field accuracy | {s['field_accuracy']} |",
+        *(f"| {k.replace('_', ' ')} | {v} |" for k, v in s["per_field"].items()),
+        "",
+        "## Samples",
+        "",
+        *_case_rows(data["results"]),
+    ]
+    md = out_dir / "samples.md"
+    js = out_dir / "samples.json"
+    md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    js.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return md, js
+
+
 def write_report(data: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     s = data["summary"]
@@ -491,18 +532,24 @@ def run_compare(
     ai_reader: ReaderFactory,
     ai_label: str,
     after_case: Callable[[dict[str, Any]], None] | None = None,
+    cases: list[Case] | None = None,
 ) -> dict[str, Any]:
-    """Run only the request-reading cases through both readers, original and held-out."""
-    cases = [c for c in [*CASES, *HELDOUT] if not c.scenario]
+    """Run request-reading cases through both readers.
+
+    By default the synthetic original and held-out cases; pass ``cases`` to compare on
+    labelled real samples instead (see evals/samples.py).
+    """
+    if cases is None:
+        cases = [c for c in [*CASES, *HELDOUT] if not c.scenario]
+    splits = list(dict.fromkeys(split_of(c.category) for c in cases))
     mock = run_cases(cases)
     ai = run_cases(cases, ai_reader, after_case)
-    out: dict[str, Any] = {"readers": {BASELINE: {}, ai_label: {}}, "results": {}}
+    out: dict[str, Any] = {"readers": {BASELINE: {}, ai_label: {}}, "results": {}, "splits": splits}
     for label, results in ((BASELINE, mock), (ai_label, ai)):
         totals = [r["checks"]["quote_total"] for r in results if "quote_total" in r["checks"]]
         states = [r["checks"]["state"] for r in results if "state" in r["checks"]]
         out["readers"][label] = {
-            "original": reading_summary([r for r in results if r["split"] == "original"]),
-            "heldout": reading_summary([r for r in results if r["split"] == "heldout"]),
+            **{sp: reading_summary([r for r in results if r["split"] == sp]) for sp in splits},
             "quote_correctness": ratio(sum(totals), len(totals)),
             "correct_next_step": ratio(sum(states), len(states)),
         }
@@ -531,7 +578,11 @@ def write_compare_report(data: dict[str, Any], out_dir: Path) -> tuple[Path, Pat
     def row(name: str, get: Callable[[dict[str, Any]], Any]) -> str:
         return f"| {name} | " + " | ".join(str(get(data["readers"][x])) for x in labels) + " |"
 
-    lines = ["# Reader comparison (synthetic cases)", "", CAVEAT, "", head, sep]
+    splits = data.get("splits", ["original", "heldout"])
+    synthetic = "samples" not in splits
+    title = "synthetic cases" if synthetic else "labelled real samples"
+    lines = [f"# Reader comparison ({title})", "", CAVEAT if synthetic else SAMPLES_CAVEAT, ""]
+    lines += [head, sep]
 
     def pick(*path: str) -> Callable[[dict[str, Any]], Any]:
         def get(r: dict[str, Any]) -> Any:
@@ -542,36 +593,38 @@ def write_compare_report(data: dict[str, Any], out_dir: Path) -> tuple[Path, Pat
 
         return get
 
-    for split, label in (("original", "Original cases"), ("heldout", "Held-out cases")):
+    names = {"original": "Original cases", "heldout": "Held-out cases", "samples": "Samples"}
+    for split in splits:
+        label = names[split]
         lines += [
             row(f"{label}: fully correct", pick(split, "cases_fully_correct")),
             row(f"{label}: field accuracy", pick(split, "field_accuracy")),
             row(f"{label}: manipulation flagged", pick(split, "manipulation_flagged")),
         ]
-    for f in data["readers"][labels[0]]["heldout"]["per_field"]:
-        lines.append(row(f"Held-out: {f.replace('_', ' ')}", pick("heldout", "per_field", f)))
+    detail = splits[-1]
+    for f in data["readers"][labels[0]][detail]["per_field"]:
+        lines.append(row(f"{names[detail]}: {f.replace('_', ' ')}", pick(detail, "per_field", f)))
+
+    def total(r: dict[str, Any], key: str) -> int:
+        return sum(int(r[sp][key]) for sp in splits)
+
+    def cost(r: dict[str, Any]) -> Decimal:
+        return sum((Decimal(r[sp]["ai_cost_usd"]) for sp in splits), Decimal(0))
+
     lines += [
         row("Quote correctness (exact cents)", lambda r: r["quote_correctness"]),
         row("Correct next step (quote vs ask)", lambda r: r["correct_next_step"]),
-        row(
-            "Fell back to rules",
-            lambda r: r["original"]["fallbacks"] + r["heldout"]["fallbacks"],
-        ),
-        row("Paid AI calls", lambda r: r["original"]["ai_calls"] + r["heldout"]["ai_calls"]),
+        row("Fell back to rules", lambda r: total(r, "fallbacks")),
+        row("Paid AI calls", lambda r: total(r, "ai_calls")),
         row(
             "Tokens in / out",
-            lambda r: (
-                f"{r['original']['input_tokens'] + r['heldout']['input_tokens']:,} / "
-                f"{r['original']['output_tokens'] + r['heldout']['output_tokens']:,}"
-            ),
+            lambda r: f"{total(r, 'input_tokens'):,} / {total(r, 'output_tokens'):,}",
         ),
+        row("Estimated AI cost, whole run", lambda r: format_usd(cost(r))),
         row(
-            "Estimated AI cost, whole run",
-            lambda r: format_usd(
-                Decimal(r["original"]["ai_cost_usd"]) + Decimal(r["heldout"]["ai_cost_usd"])
-            ),
+            "Estimated AI cost per request",
+            lambda r: f"${r[detail]['cost_per_request_usd']}",
         ),
-        row("Estimated AI cost per request", lambda r: f"${r['heldout']['cost_per_request_usd']}"),
         "",
         "Costs are estimated from reported token counts and list prices; the provider's bill "
         "is authoritative.",

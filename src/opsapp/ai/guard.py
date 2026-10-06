@@ -21,6 +21,22 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
 
 
+def _customer_name_in_text(mention: str, text: str, ctx: ExtractionContext) -> str | None:
+    """The spelling of ``mention``'s customer that actually appears in the text, if any.
+
+    A reader may give the full listed name ("Summit Bakery Co") when the request uses an
+    alias ("Summit Bakery"). That still names one known customer, so the spelling found in
+    the text is kept. A name that is not in the text at all is dropped.
+    """
+    for c in ctx.customers:
+        spellings = [c.name, *c.aliases]
+        if mention not in spellings:
+            continue
+        present = [n for n in spellings if _norm(n) in text]
+        return max(present, key=len) if present else None
+    return None
+
+
 def validate_output(
     raw: Any, request_text: str, ctx: ExtractionContext
 ) -> tuple[ExtractionOutput, list[str]]:
@@ -57,12 +73,21 @@ def validate_output(
                 item = item.model_copy(update={"quantity": None})
         items.append(item)
 
-    customers = [m for m in out.customer_mentions if m in known_names and _norm(m) in text]
-    if len(customers) != len(out.customer_mentions):
-        problems.append(
-            "Dropped customer mentions that are not known customer names found in the text."
-        )
-    sites = [s for s in out.site_mentions if s in ctx.site_labels and _norm(s) in text]
+    customers: list[str] = []
+    for m in out.customer_mentions:
+        found = _customer_name_in_text(m, text, ctx)
+        if found is None:
+            problems.append(
+                f"Dropped customer mention {m!r}: not a known customer name found in the text."
+            )
+        elif found not in customers:
+            customers.append(found)
+    # A site label inside a customer's own name ("Bakery" in "Summit Bakery Co") is not a
+    # site mention, so names are removed before sites are looked for.
+    site_text = text
+    for name in sorted((_norm(n) for n in known_names), key=len, reverse=True):
+        site_text = site_text.replace(name, " ")
+    sites = [s for s in out.site_mentions if s in ctx.site_labels and _norm(s) in site_text]
 
     timeframe = out.timeframe
     if (

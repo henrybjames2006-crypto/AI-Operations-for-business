@@ -1,4 +1,4 @@
-# AI Operations for Business (version 0.2.0 prototype)
+# AI Operations for Business (version 0.3.0 prototype)
 
 A local prototype of one workflow for small IT service firms:
 
@@ -11,7 +11,9 @@ or connects to any other system or database. All "delivery" and "scheduling" hap
 simulated adapters that write rows to the local SQLite file. Requests are read by a
 rule-based reader by default; version 0.2.0 adds an optional Claude model as the reader
 (off unless you turn it on, paid per request). Either way the reader only proposes what a
-request says, and fixed rules decide customers, prices and approvals.
+request says, and fixed rules decide customers, prices and approvals. Version 0.3.0 adds
+tools for learning from real firms without putting their data in the app: a discovery
+kit, a local redaction tool for sample requests, price list import, and measurements.
 
 Whether small IT service firms want this, or would pay for it, has not been tested. See
 [docs/limitations.md](docs/limitations.md).
@@ -28,6 +30,8 @@ Whether small IT service firms want this, or would pay for it, has not been test
 6. Run the simulated delivery and scheduling, with optional injected failures (failure,
    timeout, lost response, unknown status) to see retries, reconciliation and escalation.
 7. Read the full history and verify the tamper-evident audit chain.
+8. See time per step and how often people corrected the reader on **Measurements**.
+9. As the owner, import a price list from a CSV file as a draft and approve it.
 
 ## Run it on Windows (PowerShell)
 
@@ -70,7 +74,7 @@ Follow [docs/demo.md](docs/demo.md) for a five-minute walkthrough.
 ### Checks
 
 ```powershell
-python -m pytest                 # 225 tests, no network needed
+python -m pytest                 # 271 tests, no network needed
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy src
@@ -103,6 +107,16 @@ python -m opsapp eval compare --yes   # writes reports\comparison.md and reports
 
 To switch back, set `OPSAPP_AI_PROVIDER=mock`.
 
+### Discovery tools (no real data enters the app)
+
+See [docs/discovery/](docs/discovery/README.md) for the interview kit and the rules for
+real samples. To strip personal details from sample requests and score the readers on them:
+
+```powershell
+python -m opsapp redact C:\samples\originals --out C:\samples\redacted --names C:\samples\names.txt
+python -m opsapp eval run --samples C:\samples\redacted     # after filling in labels.csv
+```
+
 ### Operations commands
 
 ```powershell
@@ -131,12 +145,14 @@ exports; see [docs/security.md](docs/security.md).
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
-  contains (current: [0.2.0](docs/versions/v0.2.0.md), Checkpoint 2)
+  contains (current: [0.3.0](docs/versions/v0.3.0.md), Checkpoint 3)
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results
 - [docs/security.md](docs/security.md): boundaries, secrets, pre-pilot checklist
 - [docs/limitations.md](docs/limitations.md): what this prototype does not do
+- [docs/discovery/](docs/discovery/README.md): interview kit, redaction and labelling
+- [docs/pilot-checklist.md](docs/pilot-checklist.md): what must be true before a pilot
 - [docs/adr/](docs/adr/): design decisions
 
 ## Stack

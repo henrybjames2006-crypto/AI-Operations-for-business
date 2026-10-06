@@ -38,6 +38,7 @@ from ..persistence.models import (
     WorkflowInstance,
 )
 from ..workflow.audit import verify_chain
+from ..workflow.catalog_import import to_csv
 from ..workflow.service import ACTION_LABELS, TIMEFRAMES, WorkflowService
 
 TIMEFRAME_TEXT = {
@@ -443,19 +444,61 @@ def catalog_view(s: Session, actor: User) -> dict[str, Any]:
         entries = s.scalars(
             select(PriceEntryRow).where(PriceEntryRow.pricing_version_id == pv.id)
         ).all()
+        pending = {c["sku"]: c for c in pv.catalog_changes or []} if pv.status == "draft" else {}
         versions.append(
             {
                 "pv": pv,
                 "entries": sorted(
                     [(items[e.catalog_item_id], e) for e in entries], key=lambda x: x[0].sku
                 ),
+                "pending": pending,
+                "dropped": sorted(
+                    i.sku for i in items.values() if i.active and i.sku not in pending
+                )
+                if pending
+                else [],
             }
         )
     return {
-        "items": list(items.values()),
+        "items": [i for i in items.values() if i.active],
         "versions": versions,
         "can_manage": has_permission(Role(actor.role), Permission.MANAGE_CATALOG),
+        "import_problems": [],
     }
+
+
+def catalog_csv(s: Session, actor: User) -> str:
+    """The services and prices in effect, in the import format, for editing in Excel."""
+    pv = s.scalars(
+        select(PricingVersion)
+        .where(PricingVersion.tenant_id == actor.tenant_id, PricingVersion.status == "approved")
+        .order_by(PricingVersion.version_no.desc())
+    ).first()
+    if pv is None:
+        return to_csv([])
+    rows = s.execute(
+        select(PriceEntryRow, CatalogItem)
+        .join(CatalogItem, CatalogItem.id == PriceEntryRow.catalog_item_id)
+        .where(PriceEntryRow.pricing_version_id == pv.id, CatalogItem.active.is_(True))
+        .order_by(CatalogItem.sku)
+    ).all()
+    return to_csv(
+        [
+            {
+                "sku": item.sku,
+                "name": item.name,
+                "unit": item.unit,
+                "unit_price": str(e.unit_price),
+                "min_qty": str(e.min_qty),
+                "max_qty": str(e.max_qty),
+                "quantity_step": str(item.quantity_step),
+                "onsite": "yes" if item.onsite else "no",
+                "keywords": "; ".join(item.keywords),
+                "description": item.description,
+            }
+            for e, item in rows
+        ]
+    )
 
 
 def simulation_view(s: Session, actor: User) -> dict[str, Any]:
