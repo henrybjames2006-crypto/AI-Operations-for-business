@@ -142,8 +142,8 @@ def parse_catalog_csv(data: bytes) -> ParseResult:
         bad = [k for k, v in row.items() if v.startswith(_FORMULA_START)]
         if bad:
             errors.append(
-                f"{where}: {', '.join(bad)} starts with a formula character (= + @). "
-                "Remove it or put the text in quotes without it."
+                f"{where}: {', '.join(bad)} starts with =, +, @ or a tab, which "
+                "spreadsheets treat as a formula. Remove that first character."
             )
             continue
         row_errors: list[str] = []
