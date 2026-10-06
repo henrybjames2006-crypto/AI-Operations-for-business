@@ -7,6 +7,33 @@ All notable changes, one entry per version. Each version has a full page in
 
 Nothing yet. Next: to be planned with Henry.
 
+## [0.6.0] - 2026-10-06 (Checkpoint 6)
+
+Full details: [docs/versions/v0.6.0.md](docs/versions/v0.6.0.md)
+
+### Added
+- `backup make-key`, and `backup --to-folder DIR --key FILE --keep 14`: dated backups
+  encrypted with a key file, checked after writing, oldest removed beyond the newest 14.
+  Results go to `backup.log` and `backup-status.json`.
+- `backup drill`: restores the newest backup into a temporary copy, checks integrity,
+  schema, audit chains and record counts against the live database, and saves a report.
+- Backups panel on the owner's dashboard: last good backup and last passed drill.
+- Customer copy of an approved quote, printable or saved as PDF from the browser, with the
+  approved email text to copy, and **Mark as sent by hand** (audited; the app sends
+  nothing).
+- `company export` and `company delete --yes` for the end of a pilot. The export leaves out
+  sign-in secrets; deletion exports first and is logged without the company name.
+- [Backups and restore](docs/backups.md) guide with Task Scheduler commands, and pilot
+  templates: [data agreement](docs/pilot/data-agreement-template.md) (not legal advice)
+  and [pilot plan](docs/pilot/pilot-plan-template.md).
+
+### Changed
+- New permission `record_delivery` (owner, operator, approver).
+- `restore` and `backup --verify` accept `--key` for key-file backups.
+- `company create` options are checked by the command rather than the parser, so
+  `export` and `delete` can share it.
+- `.gitignore` ignores `*.opsbak` and `*.key`.
+
 ## [0.5.0] - 2026-10-06 (Checkpoint 5)
 
 Full details: [docs/versions/v0.5.0.md](docs/versions/v0.5.0.md)

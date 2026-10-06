@@ -13,3 +13,5 @@ reports/
 .ruff_cache/
 *.egg-info/
 build/
+*.opsbak
+*.key

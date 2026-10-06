@@ -1,4 +1,4 @@
-# AI Operations for Business (version 0.5.0 prototype)
+# AI Operations for Business (version 0.6.0 prototype)
 
 A local prototype of one workflow for small IT service firms:
 
@@ -15,7 +15,9 @@ request says, and fixed rules decide customers, prices and approvals. Version 0.
 tools for learning from real firms without putting their data in the app: a discovery
 kit, a local redaction tool for sample requests, price list import, and measurements.
 Version 0.5.0 lets a new firm be set up from nothing: its company, prices, pricing rules,
-customers and staff.
+customers and staff. Version 0.6.0 prepares for a small pilot: daily encrypted backups
+to a folder you choose, a restore drill, a printable customer copy of an approved quote
+that a person sends themselves, and data agreement and pilot plan templates.
 
 Whether small IT service firms want this, or would pay for it, has not been tested. See
 [docs/limitations.md](docs/limitations.md).
@@ -40,6 +42,10 @@ Whether small IT service firms want this, or would pay for it, has not been test
 11. Set up a new, invented firm from nothing: create the company, then add its price list,
     pricing rules, customers and sites, and staff, following the dashboard checklist. See
     [docs/setup-a-firm.md](docs/setup-a-firm.md).
+12. Open the customer copy of an approved quote, print it or save it as a PDF, copy the
+    email text into your own email program, and record that you sent it by hand.
+13. As the owner, see the last good backup and the last passed restore drill on the
+    dashboard.
 
 ## Run it on Windows (PowerShell)
 
@@ -102,7 +108,7 @@ Follow [docs/demo.md](docs/demo.md) for a five-minute walkthrough.
 ### Checks
 
 ```powershell
-python -m pytest                 # 324 tests, no network needed
+python -m pytest                 # 336 tests, no network needed
 python -m ruff check .
 python -m ruff format --check .
 python -m mypy src
@@ -153,11 +159,18 @@ python -m opsapp audit verify-export audit-log.json # check a downloaded audit l
 python -m opsapp backup --out backups\opsapp.opsbak --encrypt  # asks for a passphrase
 python -m opsapp backup --verify backups\opsapp.opsbak         # test-restores into a temp copy
 python -m opsapp restore --from backups\opsapp.opsbak --yes    # stop the server first
+python -m opsapp backup make-key --key "$HOME\Documents\opsapp-backup.key"
+python -m opsapp backup --to-folder "$HOME\OneDrive\opsapp-backups" --key "$HOME\Documents\opsapp-backup.key"
+python -m opsapp backup drill --folder "$HOME\OneDrive\opsapp-backups" --key "$HOME\Documents\opsapp-backup.key"
 python -m opsapp export <workflow id> --out export.json      # redacted workflow history
 python -m opsapp recompute-quote <quote version id>          # independent recalculation
 python -m opsapp db current
 python -m opsapp company create "Firm name" --timezone America/Chicago --owner-name "Name" --owner-email you@example.com
+python -m opsapp company export "Firm name" --out firm-export.json
+python -m opsapp company delete "Firm name" --out firm-export.json --yes   # end of a pilot
 ```
+
+Daily backups with Windows Task Scheduler: see [docs/backups.md](docs/backups.md).
 
 ### Start over
 
@@ -176,8 +189,9 @@ exports; see [docs/security.md](docs/security.md).
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) and [docs/versions/](docs/versions/): what each version
-  contains (current: [0.5.0](docs/versions/v0.5.0.md), Checkpoint 5)
+  contains (current: [0.6.0](docs/versions/v0.6.0.md), Checkpoint 6)
 - [docs/setup-a-firm.md](docs/setup-a-firm.md): set up a new firm from nothing
+- [docs/backups.md](docs/backups.md): daily encrypted backups, restore drill, restore
 - [docs/architecture.md](docs/architecture.md): components, states, data, execution
 - [docs/demo.md](docs/demo.md): walkthrough with the fictional demo data
 - [docs/evaluation.md](docs/evaluation.md): synthetic evaluation set and latest results
@@ -187,6 +201,8 @@ exports; see [docs/security.md](docs/security.md).
   OWASP Top 10
 - [docs/discovery/](docs/discovery/README.md): interview kit, redaction and labelling
 - [docs/pilot-checklist.md](docs/pilot-checklist.md): what must be true before a pilot
+- [docs/pilot/](docs/pilot/): data agreement template (not legal advice) and pilot plan
+  template
 - [docs/adr/](docs/adr/): design decisions
 
 ## Stack

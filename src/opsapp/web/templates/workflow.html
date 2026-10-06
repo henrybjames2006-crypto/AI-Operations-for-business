@@ -12,6 +12,8 @@
 <p class="muted">{{ status_text }} <span class="small">Workflow <code>{{ wf.id }}</code> · opened {{ wf.opened_at|dt }} ·
   <a href="/workflows/{{ wf.id }}/export.json">export JSON</a></span></p>
 <div class="next"><strong>What happens next:</strong> {{ next_step }}</div>
+{% if has_customer_copy %}<p><a class="button secondary" href="/workflows/{{ wf.id }}/customer-copy">Customer copy and email text</a>
+  <span class="small muted">to print, save as PDF, or send from your own email</span></p>{% endif %}
 
 {% if open_exceptions %}
 <div class="panel alert">

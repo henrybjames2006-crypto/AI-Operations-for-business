@@ -105,3 +105,10 @@ input[type=password] { font: inherit; padding: 6px 8px; border: 1px solid var(--
 ul.checklist { list-style: none; padding-left: 0; }
 ul.checklist li { padding: 3px 0; }
 ul.checklist li.done { color: var(--ok); }
+.quote-copy h1 { font-size: 22px; }
+@media print {
+  .banner, header, .noprint, .msg { display: none; }
+  body { background: #fff; }
+  main { padding: 0; max-width: none; }
+  .panel.quote-copy { border: none; padding: 0; }
+}

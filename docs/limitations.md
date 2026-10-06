@@ -1,4 +1,4 @@
-# Limitations (version 0.4.0)
+# Limitations (version 0.6.0)
 
 This is a local prototype for demonstrating one workflow with fictional data. It is **not
 production ready** and has not been used with real customers.
@@ -40,6 +40,9 @@ production ready** and has not been used with real customers.
   list (one draft at a time); there is no editor for a single service. Pricing rules have
   an editor (0.5.0), limited to the three rule types: volume discount, minimum charge and
   trip fee. Imported versions copy the rules of the current version.
+- **Quotes reach customers only by hand** (0.6.0): a person prints the customer copy or
+  pastes the email text into their own email program. The app can't tell whether it
+  really arrived; **Mark as sent by hand** records only what the person says.
 - **Customers are never deleted**, only deactivated (0.5.0). The customer CSV import adds
   new customers only; it can't update existing ones.
 
@@ -56,7 +59,9 @@ production ready** and has not been used with real customers.
 - **Demo mode** has no passwords at all and is only for the fictional data. It refuses to
   start once any user has a password.
 - **SQLite, single machine, not hosted.** Where the app runs for a pilot is undecided.
-  Backups can be encrypted and checked, but copying them off the machine is up to you.
+  Daily backups (0.6.0) leave the machine only if their folder is synced, for example by
+  OneDrive; the app does not check that syncing works. The scheduled task runs only while
+  you are signed in to Windows, and losing the key file means losing the backups.
 - **The security review is a self-review** against the OWASP Top 10, not an independent
   test.
 - **No accessibility audit, browser matrix or load testing** beyond a headless Chromium run.

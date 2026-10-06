@@ -131,6 +131,25 @@ secrets. A self-review against the OWASP Top 10 is in
 - **Measurements** are read-only, tenant-scoped, and contain workflow ids, timings and
   outcome words, not request text.
 
+## Scheduled backups and pilot data (0.6.0)
+
+- **Key-file backups:** `backup --to-folder` encrypts with a 32-byte random key read from
+  a file (AES-256-GCM), so a scheduled task needs no passphrase. The key file is created
+  once with owner-only permissions where the system supports it, is never replaced, and
+  is refused if it sits inside the backup folder. Anyone with both the key file and a
+  backup can read the data, so the key stays out of synced folders. A changed backup or a
+  different key fails to decrypt.
+- **Logs** (`backup.log`, `backup-status.json`, drill reports) hold dates, file names and
+  record counts, never data or keys.
+- **Restore drill** works only in a temporary copy and never writes to the live database.
+- **Customer copy** shows only the approved quote and email payload; viewers can't record
+  a send, and every record is audited. The app sends nothing.
+- **Company export** leaves out password hashes, authenticator secrets, sign-in sessions
+  and recovery codes. **Company delete** is command-line only, needs `--yes`, exports
+  first, deletes in one transaction, and logs the company id, row count and the export's
+  SHA-256 without the name. The export file holds the firm's data and must be handed over
+  and then removed as the agreement says.
+
 ## Firm setup (0.5.0)
 
 - **Permissions:** customers and sites need `manage_customers` (owner, operator); pricing
@@ -154,8 +173,9 @@ audit export, automatic dependency and security scanning. Still open:
 See also the [pilot checklist](pilot-checklist.md).
 
 
-- Hosting decision, TLS, and a managed database with encrypted, off-machine backups.
-- Data retention and deletion policy; customer data processing terms.
+- Hosting decision, TLS, and a managed database. (Encrypted, off-machine backups on this
+  computer: 0.6.0.)
+- A data agreement reviewed by someone qualified and signed (0.6.0 has a template).
 - Review of the AI provider's data handling before sending any real text to it.
 - An independent security review (0.4.0 has a self-review only).
 - Rate limiting and monitoring.
