@@ -1,9 +1,8 @@
 # Pilot checklist
 
 What must be true before one real IT service firm uses this app with real work, what to
-measure while it does, and when to stop. Version 0.5.0 does **not** meet this checklist
-yet: hosting, off-machine backups, an independent review and the agreement with the firm
-are still open.
+measure while it does, and when to stop. Version 0.6.0 does **not** meet this checklist
+yet: hosting, an independent review and a signed agreement with the firm are still open.
 
 ## 1. Before any real data enters the app
 
@@ -13,9 +12,11 @@ are still open.
       Built in 0.4.0; single sign-on is not.
 - [ ] The app runs somewhere agreed with the firm: on their machine, or hosted with HTTPS,
       a managed database and access limited to their staff. Not decided.
-- [ ] Backups are encrypted, stored off the machine, and a restore has been tested.
-      0.4.0 encrypts and test-restores backups (`backup --encrypt`, `backup --verify`);
-      storing them off the machine and running a restore drill are still to do.
+- [x] Backups are encrypted, stored off the machine, and a restore has been tested.
+      0.6.0: daily key-file backups into a synced folder such as OneDrive, and a restore
+      drill (`backup drill`), both shown on the owner's dashboard. See
+      [backups.md](backups.md). Tick this for a real pilot only once the scheduled task
+      has run on that computer and a drill has passed there.
 - [x] The audit log can be exported for the firm (JSON and CSV, 0.4.0).
 - [ ] A security review of the above has been done and its findings fixed. 0.4.0 has a
       self-review ([security-review-0.4.0.md](security-review-0.4.0.md)); an independent
@@ -24,11 +25,15 @@ are still open.
 **Agreement with the firm**
 
 - [ ] A written data agreement: what data the app holds, where, who can see it, how long it
-      is kept, and how it is deleted at the end.
+      is kept, and how it is deleted at the end. 0.6.0 has a
+      [starting template](pilot/data-agreement-template.md) (not legal advice), and
+      `company export` / `company delete` for the end of the pilot. Not yet reviewed or
+      signed.
 - [ ] Whether the AI reader may be used. If yes, the firm has read Anthropic's data terms
       and agreed, and a spending limit is set in the Anthropic console.
-- [ ] The firm's customers are not contacted by the app. Quote emails and schedules stay
-      simulated; a person sends the real email from their own system.
+- [x] The firm's customers are not contacted by the app. Quote emails and schedules stay
+      simulated; a person sends the real email from their own system, using the customer
+      copy and email text, and records it with **Mark as sent by hand** (0.6.0).
 - [ ] A named contact at the firm and a way to report problems.
 
 **Setup**
@@ -42,6 +47,9 @@ are still open.
 - [ ] Two people are set up at least: one who prepares quotes and one who approves.
       The dashboard's setup checklist shows when these three are done.
 - [ ] A short walkthrough with the people who will use it.
+
+A one-page [pilot plan template](pilot/pilot-plan-template.md) covers dates, contacts,
+measures and stop rules.
 
 ## 2. What to measure during the pilot
 

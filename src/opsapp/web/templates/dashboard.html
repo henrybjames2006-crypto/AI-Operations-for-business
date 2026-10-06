@@ -9,6 +9,17 @@
   <ul class="checklist">{% for step in setup %}<li class="{{ 'done' if step.done else 'todo' }}">{{ '✓' if step.done else '○' }} {% if step.done %}{{ step.text }}{% else %}<a href="{{ step.link }}">{{ step.text }}</a>{% endif %}</li>{% endfor %}</ul>
 </div>
 {% endif %}
+{% if backups %}
+<div class="panel">
+  <h2>Backups on this computer</h2>
+  {% if backups.last_failed %}<div class="msg error">The last scheduled backup failed: {{ backups.last_failed }}</div>{% endif %}
+  <ul class="checklist">
+    <li class="{{ 'todo' if backups.backup.stale else 'done' }}">{{ '○' if backups.backup.stale else '✓' }} Last good backup: {{ backups.backup.at|dt if backups.backup.at else 'none yet' }}</li>
+    <li class="{{ 'todo' if backups.drill.stale else 'done' }}">{{ '○' if backups.drill.stale else '✓' }} Last restore drill passed: {{ backups.drill.at|dt if backups.drill.at else 'none yet' }}</li>
+  </ul>
+  {% if backups.backup.stale or backups.drill.stale %}<p class="small muted">Set up daily backups and a monthly drill: see docs/backups.md.</p>{% endif %}
+</div>
+{% endif %}
 <div class="stats">
   <div class="stat"><div class="n">{{ total }}</div><div class="l">Workflows</div></div>
   <div class="stat"><div class="n">{{ completed }}</div><div class="l">Completed (simulated)</div></div>

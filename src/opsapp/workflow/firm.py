@@ -17,17 +17,23 @@ from sqlalchemy.orm import Session
 from ..auth.service import check_timezone
 from ..authz import get_scoped, require
 from ..domain.errors import CatalogImportError, Conflict, PricingError, ValidationError
+from ..domain.money import format_usd
 from ..domain.pricing import RULE_ORDER
 from ..domain.roles import Permission, Role
 from ..ids import new_id
 from ..persistence.models import (
+    Approval,
+    AuditEvent,
     CatalogItem,
     Customer,
     CustomerSite,
     PriceEntryRow,
     PricingVersion,
+    ProposedAction,
+    QuoteVersion,
     Tenant,
     User,
+    WorkflowInstance,
 )
 from .catalog import current_pricing_version
 from .customer_import import (
@@ -84,10 +90,107 @@ def _plain(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
+SENT_METHODS = {
+    "email": "emailed from their own email program",
+    "print": "printed or saved as PDF and handed over",
+    "other": "sent another way",
+}
+
+
+def approved_quote(s: Session, wf: WorkflowInstance) -> dict[str, Any] | None:
+    """The quote version a person approved, with the approved email and schedule text.
+
+    None unless there is an approval in force. Only approved content is ever shown for
+    sending by hand.
+    """
+    if wf.state == "canceled":
+        return None
+    approval = s.scalars(
+        select(Approval)
+        .where(
+            Approval.workflow_id == wf.id,
+            Approval.decision == "approved",
+            Approval.invalidated_at.is_(None),
+        )
+        .order_by(Approval.decided_at.desc())
+    ).first()
+    if approval is None:
+        return None
+    qv = s.get(QuoteVersion, approval.quote_version_id)
+    if qv is None or qv.tenant_id != wf.tenant_id:
+        return None
+    actions = {
+        a.kind: a
+        for a in s.scalars(
+            select(ProposedAction).where(
+                ProposedAction.workflow_id == wf.id,
+                ProposedAction.quote_version_id == qv.id,
+                ProposedAction.status != "voided",
+            )
+        )
+    }
+    email = actions.get("send_quote")
+    schedule = actions.get("propose_schedule")
+    sent = [
+        e
+        for e in s.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.workflow_id == wf.id, AuditEvent.event_type == "quote_sent_by_hand")
+            .order_by(AuditEvent.seq)
+        )
+    ]
+    return {
+        "approval": approval,
+        "quote": qv,
+        "customer": s.get(Customer, qv.customer_id),
+        "site": s.get(CustomerSite, qv.site_id),
+        "tenant": s.get(Tenant, wf.tenant_id),
+        "email": email.payload if email else None,
+        "schedule": schedule.payload if schedule else None,
+        "sent": sent,
+    }
+
+
 class FirmService:
     def __init__(self, workflows: WorkflowService) -> None:
         self.w = workflows
         self.clock = workflows.clock
+
+    # ------------------------------------------------------------ sending by hand
+
+    def record_sent_by_hand(self, actor_id: str, workflow_id: str, method: str, note: str) -> None:
+        """Record that a person sent the approved quote themselves. The app sends nothing."""
+
+        def run(s: Session, actor: User) -> None:
+            require(actor, Permission.RECORD_DELIVERY)
+            wf = get_scoped(s, WorkflowInstance, workflow_id, actor.tenant_id)
+            if method not in SENT_METHODS:
+                raise ValidationError("Choose how the quote was sent.")
+            if len(note) > 500:
+                raise ValidationError("Keep the note to 500 characters.")
+            approved = approved_quote(s, wf)
+            if approved is None:
+                raise ValidationError("Only an approved quote can be sent to the customer.")
+            qv = approved["quote"]
+            said = " ".join(note.split())
+            self.w._audit(
+                s,
+                wf,
+                actor,
+                "quote_sent_by_hand",
+                f"Quote version {qv.version_no} ({format_usd(qv.total)}) "
+                f"{SENT_METHODS[method]} by {actor.display_name}"
+                + (f": {said}" if said else ".")
+                + " Recorded only; the app sent nothing.",
+                {
+                    "quote_version_id": qv.id,
+                    "content_hash": qv.content_hash,
+                    "method": method,
+                    "note": said,
+                },
+            )
+
+        self.w._run(actor_id, run, workflow_id)
 
     # ------------------------------------------------------------ company settings
 

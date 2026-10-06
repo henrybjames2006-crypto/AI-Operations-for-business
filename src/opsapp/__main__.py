@@ -233,30 +233,96 @@ def _ask_secret(prompt: str, *, twice: bool = False) -> str:
     return value
 
 
-def cmd_backup(args: argparse.Namespace) -> int:
-    from .persistence.backup import BackupError, backup, is_encrypted, verify_backup
+def _key(args: argparse.Namespace, path: Path) -> bytes | None:
+    """The key file's key for backups made with one, else None."""
+    from .persistence.backup import BackupError, read_key_file, uses_key_file
 
-    if args.verify:
-        path = Path(args.verify)
-        if not path.is_file():
-            print(f"Backup not found: {path}")
-            return 1
-        passphrase = _ask_secret("Backup passphrase: ") if is_encrypted(path) else None
-        ok, lines = verify_backup(path, passphrase)
-        print("\n".join(lines))
-        return 0 if ok else 1
-    if not args.out:
-        print("Give --out FILE to write a backup, or --verify FILE to check one.")
-        return 1
+    if not uses_key_file(path):
+        return None
+    if not args.key:
+        raise BackupError("This backup was made with a key file. Give it with --key FILE.")
+    return read_key_file(Path(args.key))
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    from datetime import UTC, datetime
+
+    from .persistence.backup import (
+        BackupError,
+        backup,
+        backup_to_folder,
+        drill,
+        is_encrypted,
+        make_key_file,
+        uses_key_file,
+        verify_backup,
+    )
+
     settings = load_settings()
-    passphrase = None
-    if args.encrypt:
-        print(
-            "Choose a passphrase of at least 12 characters. It is not stored anywhere: "
-            "without it this backup can't be restored."
-        )
-        passphrase = _ask_secret("Backup passphrase: ", twice=True)
     try:
+        if args.action == "make-key":
+            if not args.key:
+                print(
+                    "Give the new key file: backup make-key --key "
+                    '"$HOME\\Documents\\opsapp-backup.key"'
+                )
+                return 1
+            path = make_key_file(Path(args.key))
+            print(f"Backup key written to {path}.")
+            print(
+                "Keep it OUT of the backup folder, and keep a second copy somewhere safe (a USB "
+                "stick or a password manager). Without it, backups made with it can't be opened."
+            )
+            return 0
+        if args.action == "drill":
+            if not (args.folder and args.key):
+                print("Give the backup folder and key: backup drill --folder DIR --key FILE")
+                return 1
+            ok, lines, report = drill(
+                settings.database_path, Path(args.folder), Path(args.key), datetime.now(UTC)
+            )
+            print("\n".join(lines))
+            print(f"Report saved to {report}")
+            return 0 if ok else 1
+        if args.verify:
+            path = Path(args.verify)
+            if not path.is_file():
+                print(f"Backup not found: {path}")
+                return 1
+            key = _key(args, path)
+            needs_pass = is_encrypted(path) and not uses_key_file(path)
+            passphrase = _ask_secret("Backup passphrase: ") if needs_pass else None
+            ok, lines = verify_backup(path, passphrase, key)
+            print("\n".join(lines))
+            return 0 if ok else 1
+        if args.folder:
+            if not args.key:
+                print("Give the key file too: backup --to-folder DIR --key FILE")
+                return 1
+            out, removed = backup_to_folder(
+                settings.database_path,
+                Path(args.folder),
+                Path(args.key),
+                args.keep,
+                datetime.now(UTC),
+            )
+            print(f"Encrypted backup written and checked: {out}")
+            if removed:
+                print(f"Removed {len(removed)} older backup(s); keeping the newest {args.keep}.")
+            return 0
+        if not args.out:
+            print(
+                "Give --out FILE to write a backup, --to-folder DIR --key FILE for a scheduled "
+                "one, or --verify FILE to check one."
+            )
+            return 1
+        passphrase = None
+        if args.encrypt:
+            print(
+                "Choose a passphrase of at least 12 characters. It is not stored anywhere: "
+                "without it this backup can't be restored."
+            )
+            passphrase = _ask_secret("Backup passphrase: ", twice=True)
         out = backup(settings.database_path, Path(args.out), passphrase)
     except (BackupError, FileExistsError, FileNotFoundError) as exc:
         print(exc)
@@ -268,7 +334,7 @@ def cmd_backup(args: argparse.Namespace) -> int:
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
-    from .persistence.backup import BackupError, is_encrypted, restore
+    from .persistence.backup import BackupError, is_encrypted, restore, uses_key_file
 
     settings = load_settings()
     if not args.yes:
@@ -281,9 +347,11 @@ def cmd_restore(args: argparse.Namespace) -> int:
     if not source.is_file():
         print(f"Backup not found: {source}")
         return 1
-    passphrase = _ask_secret("Backup passphrase: ") if is_encrypted(source) else None
     try:
-        restore(source, settings.database_path, passphrase)
+        key = _key(args, source)
+        needs_pass = is_encrypted(source) and not uses_key_file(source)
+        passphrase = _ask_secret("Backup passphrase: ") if needs_pass else None
+        restore(source, settings.database_path, passphrase, key)
     except BackupError as exc:
         print(exc)
         return 1
@@ -312,8 +380,13 @@ def cmd_user(args: argparse.Namespace) -> int:
 
 
 def cmd_company(args: argparse.Namespace) -> int:
+    if args.action in ("export", "delete"):
+        return _company_data(args)
     from .domain.errors import DomainError
 
+    if not (args.timezone and args.owner_name and args.owner_email):
+        print("company create needs --timezone, --owner-name and --owner-email.")
+        return 1
     settings = load_settings()
     if not settings.database_path.exists():
         print("No database yet. Run first: python -m opsapp db upgrade")
@@ -334,6 +407,47 @@ def cmd_company(args: argparse.Namespace) -> int:
     print("Start the app (python -m opsapp serve), sign in, and follow the setup checklist.")
     if c.settings.demo_mode:
         print("Turn OPSAPP_DEMO_MODE off in .env to sign in with it.")
+    return 0
+
+
+def _company_data(args: argparse.Namespace) -> int:
+    from datetime import UTC, datetime
+
+    from .persistence.company_data import CompanyDataError, delete_company, write_export
+
+    settings = load_settings()
+    if not settings.database_path.exists():
+        print("No database found.")
+        return 1
+    if not args.out:
+        print(f'Give the export file: company {args.action} "{args.name}" --out FILE.json')
+        return 1
+    now = datetime.now(UTC)
+    c = _container()
+    try:
+        if args.action == "export":
+            doc = write_export(c.sf, args.name, Path(args.out), now)
+            rows = sum(doc["counts"].values())
+            print(f"Exported {doc['company']['name']} ({rows} records) to {args.out}.")
+            print("Sign-in secrets are left out. The file holds the company's data: keep it safe.")
+            return 0
+        if not args.yes:
+            print(
+                f"This permanently removes {args.name!r} and all its records from "
+                f"{settings.database_path}, after exporting them to {args.out}. Make a backup "
+                "first, stop the server, then re-run with --yes."
+            )
+            return 1
+        removed = delete_company(
+            c.sf, args.name, Path(args.out), settings.database_path.parent, now
+        )
+    except CompanyDataError as exc:
+        print(exc)
+        return 1
+    finally:
+        c.engine.dispose()
+    print(f"Deleted {args.name}: {sum(removed.values())} records. Export kept at {args.out}.")
+    print("Older backups still contain it: delete or keep them as your agreement says.")
     return 0
 
 
@@ -415,12 +529,14 @@ def main(argv: list[str] | None = None) -> int:
     rd.add_argument("--out", required=True, help="new folder for the redacted copies")
     rd.add_argument("--names", help="text file with names to hide, one per line")
     rd.set_defaults(fn=cmd_redact)
-    co = sub.add_parser("company", help="create a new, empty company and its first owner")
-    co.add_argument("action", choices=["create"])
+    co = sub.add_parser("company", help="create, export or delete a company")
+    co.add_argument("action", choices=["create", "export", "delete"])
     co.add_argument("name", help="the firm's name, in quotes")
-    co.add_argument("--timezone", required=True, help="for schedule times, e.g. America/Chicago")
-    co.add_argument("--owner-name", required=True, help="the first owner's name")
-    co.add_argument("--owner-email", required=True, help="the first owner's email")
+    co.add_argument("--timezone", help="create: for schedule times, e.g. America/Chicago")
+    co.add_argument("--owner-name", help="create: the first owner's name")
+    co.add_argument("--owner-email", help="create: the first owner's email")
+    co.add_argument("--out", help="export/delete: the JSON file to write")
+    co.add_argument("--yes", action="store_true", help="delete: confirm")
     co.set_defaults(fn=cmd_company)
     us = sub.add_parser("user", help="create the first owner of a company")
     us.add_argument("action", choices=["create"])
@@ -429,13 +545,22 @@ def main(argv: list[str] | None = None) -> int:
     us.add_argument("--email", required=True)
     us.set_defaults(fn=cmd_user)
     bk = sub.add_parser("backup", help="write a consistent copy of the database, or check one")
+    bk.add_argument(
+        "action", nargs="?", choices=["make-key", "drill"], help="make a key file, or a drill"
+    )
     bk.add_argument("--out", help="backup file to write")
+    bk.add_argument(
+        "--to-folder", "--folder", dest="folder", help="folder for dated, scheduled backups"
+    )
+    bk.add_argument("--key", help="backup key file (kept outside the backup folder)")
+    bk.add_argument("--keep", type=int, default=14, help="how many backups to keep (14)")
     bk.add_argument("--encrypt", action="store_true", help="lock it with a passphrase")
     bk.add_argument("--verify", metavar="FILE", help="check an existing backup instead")
     bk.set_defaults(fn=cmd_backup)
     rs = sub.add_parser("restore", help="replace the database with a backup")
     rs.add_argument("--from", dest="source", required=True)
     rs.add_argument("--yes", action="store_true")
+    rs.add_argument("--key", help="key file, for backups made with one")
     rs.set_defaults(fn=cmd_restore)
     au = sub.add_parser("audit", help="verify audit hash chains, or an exported log")
     au.add_argument("action", choices=["verify", "verify-export"])

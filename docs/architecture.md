@@ -1,4 +1,4 @@
-# Architecture (version 0.4.0)
+# Architecture (version 0.6.0)
 
 One Python package, `opsapp`, run as two local processes that share one SQLite file:
 
@@ -183,3 +183,17 @@ customer matching, clarification options and quote edits only use active ones; a
 or quote that already points at a deactivated customer or removed site keeps it.
 `firm.setup_checklist` drives the dashboard checklist.
 
+## Pilot readiness (0.6.0)
+
+`persistence/backup.py` adds a second encrypted format (`OPSAPP-ENCRYPTED-BACKUP-2`) keyed
+by a key file instead of a passphrase. `backup_to_folder` writes, verifies and prunes
+dated backups and records each result in `backup-status.json` and `backup.log` next to
+the database; `drill` restores the newest one into a temporary folder and compares record
+counts per tenant with the live database. `web/views.backup_summary` reads the status
+file for the owner's dashboard.
+
+`workflow/firm.approved_quote` rebuilds the customer copy from the approval's own records
+(quote version, `send_quote` and `propose_schedule` payloads), so it shows only what was
+approved. `FirmService.record_sent_by_hand` writes a `quote_sent_by_hand` audit event and
+nothing else. `persistence/company_data.py` exports and deletes one tenant's rows across
+every table with a `tenant_id`, children first.

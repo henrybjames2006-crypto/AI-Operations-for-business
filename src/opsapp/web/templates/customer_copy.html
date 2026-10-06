@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Quote for {{ customer.name }}{% endblock %}
+{% block content %}
+<div class="noprint">
+  <p class="small"><a href="/workflows/{{ wf.id }}">Back to the workflow</a></p>
+  <div class="next">This is the quote as approved by {{ users[approval.approver_id].display_name }} on {{ approval.decided_at|dt }}.
+    <strong>The app does not send it.</strong> Print it or save it as a PDF with your browser's Print command (Ctrl+P), or copy the email text below into your own email program. Then record how you sent it.</div>
+</div>
+<div class="panel quote-copy">
+  <h1>Quote {{ quote.version_no }} from {{ tenant.name }}</h1>
+  <p><strong>For:</strong> {{ customer.name }}<br>
+     <strong>Site:</strong> {{ site.label }}, {{ site.address }}<br>
+     <strong>Date:</strong> {{ approval.decided_at.strftime('%d %B %Y') }}</p>
+  <table>
+    <tr><th>Item</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Amount</th></tr>
+    {% for ln in quote.calculation['lines'] %}
+    <tr><td>{{ ln.description }}</td><td class="num">{{ ln.quantity }}</td><td class="num">{{ ln.unit_price|usd }}</td><td class="num">{{ ln.amount|usd }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td colspan="3">Total ({{ quote.currency }})</td><td class="num">{{ quote.total|usd }}</td></tr>
+  </table>
+  <p class="small">Tax is not included.</p>
+  {% if quote.assumptions %}<h3>Assumptions</h3>
+  <ul class="small">{% for a in quote.assumptions %}<li>{{ a }}</li>{% endfor %}</ul>{% endif %}
+  {% if schedule and schedule.slots %}<h3>Proposed times</h3>
+  <ul class="small">{% for slot in schedule.slots %}<li>{{ slot|slot }} ({{ tenant.timezone }} time)</li>{% endfor %}</ul>
+  <p class="small">To be confirmed with you; availability has not been checked.</p>{% endif %}
+  <p class="small muted">Reference {{ quote.content_hash[:12] }}</p>
+</div>
+<div class="noprint">
+{% if email %}
+<div class="panel">
+  <h2>Email text</h2>
+  <p class="small muted">Copy these into your own email program. They are the exact text that was approved.</p>
+  <p><strong>To:</strong> <code>{{ email.to }}</code></p>
+  <p><strong>Subject:</strong> <code>{{ email.subject }}</code></p>
+  <pre>{{ email.body }}</pre>
+</div>
+{% endif %}
+<div class="panel">
+  <h2>Record how it was sent</h2>
+  {% for e in sent %}<p class="small">{{ e.at|dt }}: {{ e.message }}</p>{% else %}<p class="small muted">Not recorded as sent yet.</p>{% endfor %}
+  {% if can_record %}
+  <form method="post" action="/workflows/{{ wf.id }}/sent-by-hand" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="method" aria-label="How it was sent">{% for k, v in methods.items() %}<option value="{{ k }}">{{ v|capitalize }}</option>{% endfor %}</select>
+    <input name="note" maxlength="500" size="40" placeholder="Note (optional), e.g. sent to the office manager" aria-label="Note">
+    <button>Mark as sent by hand</button>
+  </form>
+  {% endif %}
+</div>
+</div>
+{% endblock %}

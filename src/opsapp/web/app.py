@@ -102,6 +102,9 @@ def create_app(
     templates.env.filters["usd"] = lambda v: format_usd(Decimal(str(v))) if v is not None else ""
     # AI costs are fractions of a cent per request, so show four decimal places.
     templates.env.filters["usd4"] = lambda v: f"${Decimal(str(v)):.4f}" if v is not None else ""
+    templates.env.filters["slot"] = lambda iso: datetime.fromisoformat(iso).strftime(
+        "%A %d %B %Y, %H:%M"
+    )
     templates.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else ""
 
     # ------------------------------------------------------------------ helpers
@@ -506,6 +509,8 @@ def create_app(
         user = current_user(request)
         with c.read_sf() as s:
             data = views.dashboard(s, user)
+        if has_permission(Role(user.role), Permission.MANAGE_COMPANY):
+            data["backups"] = views.backup_summary(settings.database_path, c.clock.now())
         return render(request, "dashboard.html", data, user=user)
 
     @app.get("/requests/new", response_class=HTMLResponse)
@@ -572,6 +577,37 @@ def create_app(
         with c.read_sf() as s:
             data = views.workflow_detail(s, c.service, user.id, wf_id)
             return render(request, "workflow.html", data, user=user)
+
+    @app.get("/workflows/{wf_id}/customer-copy", response_class=HTMLResponse)
+    def customer_copy(request: Request, wf_id: str) -> Response:
+        user = current_user(request)
+        try:
+            with c.read_sf() as s:
+                data = views.customer_copy(s, user, wf_id)
+                return render(request, "customer_copy.html", data, user=user)
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse(f"/workflows/{wf_id}", status_code=303)
+
+    @app.post("/workflows/{wf_id}/sent-by-hand")
+    def sent_by_hand(
+        request: Request,
+        wf_id: str,
+        method: str = Form(""),
+        note: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.record_sent_by_hand(user.id, wf_id, method, note),
+            f"/workflows/{wf_id}/customer-copy",
+            "Recorded in the audit log. The app itself sent nothing.",
+        )
 
     @app.get("/workflows/{wf_id}/export.json")
     def export(request: Request, wf_id: str) -> Response:

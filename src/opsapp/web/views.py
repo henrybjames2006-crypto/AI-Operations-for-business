@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..authz import get_scoped, load_actor, require
+from ..domain.errors import ValidationError
 from ..domain.money import format_usd
 from ..domain.roles import Permission, Role, has_permission
 from ..domain.states import LABEL, PRE_EXECUTION, STATUS_TEXT, State, can_transition
@@ -39,7 +42,7 @@ from ..persistence.models import (
 )
 from ..workflow.audit import verify_chain
 from ..workflow.catalog_import import to_csv
-from ..workflow.firm import describe_rule, setup_checklist
+from ..workflow.firm import SENT_METHODS, approved_quote, describe_rule, setup_checklist
 from ..workflow.service import ACTION_LABELS, TIMEFRAMES, WorkflowService
 
 TIMEFRAME_TEXT = {
@@ -244,6 +247,7 @@ def workflow_detail(
                 ).all()
             ]
     return {
+        "has_customer_copy": approved_quote(s, wf) is not None,
         "wf": wf,
         "state": state,
         "label": LABEL[state],
@@ -481,6 +485,21 @@ def catalog_view(s: Session, actor: User) -> dict[str, Any]:
     }
 
 
+def customer_copy(s: Session, actor: User, workflow_id: str) -> dict[str, Any]:
+    require(actor, Permission.VIEW)
+    wf = get_scoped(s, WorkflowInstance, workflow_id, actor.tenant_id)
+    approved = approved_quote(s, wf)
+    if approved is None:
+        raise ValidationError("This workflow has no approved quote yet.")
+    return {
+        "wf": wf,
+        **approved,
+        "users": _users(s, actor.tenant_id),
+        "methods": SENT_METHODS,
+        "can_record": has_permission(Role(actor.role), Permission.RECORD_DELIVERY),
+    }
+
+
 def customers_view(s: Session, actor: User) -> dict[str, Any]:
     require(actor, Permission.VIEW)
     customers = s.scalars(
@@ -545,6 +564,30 @@ def _common_timezones() -> set[str]:
         z
         for z in available_timezones()
         if "/" in z and z.split("/")[0] in {"America", "Europe", "Australia", "Pacific", "Asia"}
+    }
+
+
+def backup_summary(database_path: Path, now: datetime) -> dict[str, Any]:
+    """Last scheduled backup and restore drill on this computer, for owners."""
+    from ..persistence.backup import read_status
+
+    status = read_status(database_path)
+
+    def item(key: str, stale_after: timedelta) -> dict[str, Any]:
+        entry = status.get(key)
+        if not entry:
+            return {"at": None, "stale": True}
+        try:
+            at = datetime.fromisoformat(entry["at"])
+        except KeyError, TypeError, ValueError:
+            return {"at": None, "stale": True}
+        return {"at": at, "stale": now - at > stale_after}
+
+    last = status.get("last_backup") or {}
+    return {
+        "backup": item("last_good_backup", timedelta(days=2)),
+        "drill": item("last_good_drill", timedelta(days=31)),
+        "last_failed": None if last.get("ok", True) else last.get("detail", ""),
     }
 
 
