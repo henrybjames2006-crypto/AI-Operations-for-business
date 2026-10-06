@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Choose a demo user{% endblock %}
+{% block content %}
+<div class="panel">
+  <h1>Choose a demo user</h1>
+  <div class="msg warn">Demo sign-in only: there are no passwords. This is safe only because the app runs on your own
+    computer (127.0.0.1) with fictional data. Real authentication is planned before any pilot.</div>
+  {% for t in tenants %}
+  <h2>{{ t.name }} <span class="muted small">(fictional business)</span></h2>
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="login-users">
+    {% for u in users if u.tenant_id == t.id %}
+      <button name="user_id" value="{{ u.id }}"><strong>{{ u.display_name }}</strong><br>
+        <span class="small muted">{{ ROLE_TEXT[u.role] }}</span></button>
+    {% endfor %}
+    </div>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

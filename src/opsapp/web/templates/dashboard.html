@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="stats">
+  <div class="stat"><div class="n">{{ total }}</div><div class="l">Workflows</div></div>
+  <div class="stat"><div class="n">{{ completed }}</div><div class="l">Completed (simulated)</div></div>
+  <div class="stat"><div class="n">{{ awaiting }}</div><div class="l">Awaiting approval</div></div>
+  <div class="stat"><div class="n">{{ open_exceptions }}</div><div class="l">Open exceptions</div></div>
+  <div class="stat"><div class="n">{{ completion_rate }}</div><div class="l">Completion rate</div></div>
+  <div class="stat"><div class="n">{{ escalation_rate }}</div><div class="l">Escalation rate (ever escalated)</div></div>
+  <div class="stat"><div class="n">{{ avg_review }}</div><div class="l">Avg. time from draft to submission</div></div>
+  <div class="stat"><div class="n">{{ cost_per_completed }}</div><div class="l">AI cost per completed (mock = $0)</div></div>
+</div>
+<div class="panel">
+  <h2>Workflows by status</h2>
+  <div class="row">
+  {% for label, n in counts.items() %}<a class="badge" href="/workflows?state={{ label|lower|replace(' ', '_') }}">{{ label }}: {{ n }}</a>{% endfor %}
+  </div>
+</div>
+<div class="panel">
+  <h2>Needs attention</h2>
+  {% with rows=attention %}{% include "_wf_table.html" %}{% endwith %}
+</div>
+<div class="panel">
+  <h2>Recently completed</h2>
+  {% with rows=recent_completed %}{% include "_wf_table.html" %}{% endwith %}
+</div>
+<p class="small muted">Metrics describe this prototype's fictional data only. They are not evidence of time saved or customer value.</p>
+{% endblock %}

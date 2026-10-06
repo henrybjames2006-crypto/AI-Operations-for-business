@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<div class="msg {{ 'ok' if ok else 'error' }}">Hash chain {{ 'intact' if ok else 'BROKEN at event #' ~ bad }} across {{ count }} events. (Detects edits to the local database; does not prevent them.)</div>
+<div class="panel">
+<table class="events">
+  <tr><th>#</th><th>When</th><th>Who</th><th>Event</th><th>What happened</th></tr>
+  {% for e in events %}
+  <tr><td>{{ e.seq }}</td><td class="small">{{ e.at|dt }}</td>
+    <td class="small">{{ users[e.actor_id].display_name if e.actor_id in users else e.actor_type }}</td>
+    <td class="small"><code>{{ e.event_type }}</code></td>
+    <td>{{ e.message }}{% if e.workflow_id %} <a class="small" href="/workflows/{{ e.workflow_id }}">open</a>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

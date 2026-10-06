@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Simulation{% endblock %}
+{% block content %}
+<h1>Simulated external systems</h1>
+<div class="simbox">Everything on this page is a simulation. No email is sent and no calendar event is created. These records stand in for what a real provider would hold.</div>
+{% if perm(Permission.SIMULATION_CONTROLS) %}
+<div class="grid">
+<div class="panel">
+  <h2>Inject a fault into the next call</h2>
+  <form method="post" action="/simulation/fault" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="adapter"><option value="sim_email">Simulated email</option><option value="sim_calendar">Simulated calendar</option></select>
+    <select name="mode">
+      <option value="drop_response">Succeeds, but the response is lost</option>
+      <option value="fail">Provider error (did not happen)</option>
+      <option value="timeout_before_send">Timeout before sending (did not happen)</option>
+      <option value="status_unknown">Response lost and status cannot be checked</option>
+    </select>
+    <button class="secondary">Queue fault</button>
+  </form>
+</div>
+<div class="panel">
+  <h2>Run the dispatcher once</h2>
+  <p class="small muted">Normally the dispatcher runs in its own window (<code>python -m opsapp dispatch</code>). This button processes whatever is due right now.</p>
+  <form method="post" action="/simulation/dispatch"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run dispatcher once</button></form>
+</div>
+</div>
+{% endif %}
+<div class="panel">
+  <h2>Operations recorded by the simulated providers</h2>
+  <table><tr><th>When</th><th>Provider</th><th>Idempotency key</th><th>Content</th></tr>
+  {% for op in ops %}<tr><td class="small">{{ op.created_at|dt }}</td><td><span class="badge sim">{{ op.adapter }}</span></td>
+    <td class="hash">{{ op.payload.key }}</td>
+    <td class="small">{% if op.payload.to %}To {{ op.payload.to }}: {{ op.payload.subject }}{% else %}{{ op.payload.customer }} at {{ op.payload.site }}: {{ op.payload.slots|length }} proposed times{% endif %}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Nothing yet.</td></tr>{% endfor %}
+  </table>
+</div>
+<div class="panel">
+  <h2>Fault queue</h2>
+  <table><tr><th>Queued</th><th>Provider</th><th>Mode</th><th>Used</th></tr>
+  {% for f in faults %}<tr><td class="small">{{ f.created_at|dt }}</td><td>{{ f.adapter }}</td><td>{{ f.mode }}</td><td class="small">{{ f.consumed_at|dt if f.consumed_at else 'waiting' }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No faults queued.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

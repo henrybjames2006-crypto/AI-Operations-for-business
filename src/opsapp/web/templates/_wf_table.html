@@ -1,0 +1,15 @@
+<table>
+  <tr><th>Status</th><th>Customer</th><th>Request</th><th class="num">Quote</th><th>Updated</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><span class="badge s-{{ r.state }}">{{ r.label }}</span>
+      {% if r.open_questions %}<div class="small muted">{{ r.open_questions }} open question(s)</div>{% endif %}</td>
+    <td>{{ r.customer }}</td>
+    <td><a href="/workflows/{{ r.wf.id }}">{{ r.summary }}{% if r.summary|length >= 110 %}…{% endif %}</a></td>
+    <td class="num">{{ r.total }}{% if r.quote_version %}<div class="small muted">v{{ r.quote_version }}</div>{% endif %}</td>
+    <td class="small muted">{{ r.wf.updated_at|dt }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">Nothing here yet.</td></tr>
+  {% endfor %}
+</table>

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Approval queue{% endblock %}
+{% block content %}
+<h1>Approval queue</h1>
+<p class="muted">Quotes waiting for a decision. Open one to see exactly what will happen if you approve it. You cannot approve work you prepared.</p>
+<div class="panel">{% include "_wf_table.html" %}</div>
+{% endblock %}
