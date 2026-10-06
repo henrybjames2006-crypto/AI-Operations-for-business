@@ -92,12 +92,22 @@ What this shows, and what it does not:
 - On the 30 held-out cases the AI reader was fully correct on 27 and the rules on 16. It
   flagged all 4 held-out manipulation attempts; the rules flagged none.
 - **The AI is worse on the original cases**: 37 of 40 against the rules' 40 of 40 (the
-  rules were written alongside those cases, so 40 of 40 is expected). Which three cases it
-  missed, and why, is in `reports/comparison.json` from that run; it has not been reviewed
-  yet.
-- One held-out case got a wrong quote total and one got the wrong next step with the AI
-  reader. The guard, price rules and human review still apply to AI output.
+  rules were written alongside those cases, so 40 of 40 is expected).
+- In this run no AI mistake produced a wrong price. Every miss either left the next step
+  unchanged or made the system ask the customer instead of quoting. The guard, price rules
+  and human review still apply to AI output.
 - This is one run on 70 invented cases. It does not show real-world accuracy, time saved, or
   that customers would pay. Model output can vary between runs.
 - Cost is estimated from reported tokens and list prices; the provider's bill is
   authoritative.
+
+**Every case the AI reader got wrong in that run** (from Henry's `reports/comparison.json`):
+
+| Case | Request | What went wrong | Effect |
+| --- | --- | --- | --- |
+| missing-02 (original) | "five new workstations installed ... and our files moved over from the old PCs" | Assumed 5 data migrations; the case expects the count to be asked | None: it still asked the customer |
+| missing-04 (original) | "Please migrate data for all of them." | Reported no service at all instead of data migration with no count | None: it still asked the customer |
+| ambiguous-05 (original) | "Summit Bakery here: 2 network drops at the bakery please." (no sender) | Customer not identified | Asked which customer instead of quoting. Likely cause (inferred, not confirmed): the prompt asks for names "spelled exactly as listed", so the model may have returned "Summit Bakery Co", which the guard drops because it is not in the text. The alias "Summit Bakery" would have passed. |
+| heldout-01 | "printer died and we bought a replacement. Could someone come hook it up" | No number given, so it left the quantity empty instead of 1 | Asked instead of quoting (the one missing quote and wrong next step) |
+| heldout-07 | "next Thursday" | Read as "next week" instead of the date | Quote correct; schedule hint less precise |
+| heldout-23 | "espresso machine's wifi module" | Did not list it as unsupported work | None: it still asked the customer |

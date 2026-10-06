@@ -32,7 +32,9 @@ Full details: [docs/versions/v0.2.0.md](docs/versions/v0.2.0.md)
 ### Known limitations
 - Live AI comparison, one run with `claude-haiku-4-5` on synthetic cases: held-out 27 of 30
   fully correct (rules 16 of 30), but original cases 37 of 40 (rules 40 of 40). About $0.15
-  for 70 calls. The three original-case misses have not been reviewed yet.
+  for 70 calls. No AI miss produced a wrong price; misses led to asking the customer.
+- The AI reader may fail to name a customer when the prompt's "exactly as listed" name is
+  not in the text (inferred from one case, ambiguous-05).
 - Rule-based reader: 16 of 30 held-out cases fully correct.
 - A site name inside a company name is taken as the site.
 
