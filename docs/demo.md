@@ -82,3 +82,26 @@ The workflow ends **Completed**. Try `status_unknown` on `sim_calendar` to see a
 - **Audit log** shows the tenant-wide chain and whether it verifies.
 - **export JSON** on the workflow downloads a redacted copy of the full history.
 - `python -m opsapp audit verify` checks the chain from the command line.
+
+## 6. Measurements
+
+Open **Measurements** (any user). It shows how long each step took for the workflows you
+just ran (received to draft ready, draft to submitted, submitted to decision) and, for each
+field, whether the reader's proposal was kept, filled in by a person, or changed. For the
+main demo request you should see the customer and timeframe **kept**, and the site and
+items **filled in** (the site and the migration count were asked for). **Download as CSV**
+gives one row per workflow.
+
+## 7. Import a price list (Dana)
+
+1. Sign in as **Dana Ortiz** and open **Catalog**.
+2. The demo data already has a draft pricing version 4. Click **Discard this draft** (only
+   one draft is allowed at a time).
+3. Click **Download the current price list in this format** and open `price-list.csv` in
+   Excel. Change a price, delete a row, or add one (keywords separated by `;`). Save it as
+   CSV.
+4. Under **Import a price list**, choose the file and click **Import as draft**. A file
+   with mistakes is refused with one line per problem, and nothing is saved.
+5. The new draft shows each price, services marked **new**, and which services will no
+   longer be offered. Click **Approve this pricing version** to start using it. Quotes
+   made earlier keep their old prices.

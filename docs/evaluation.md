@@ -58,6 +58,23 @@ small sample. Pricing, approval, failure, duplicate and tenant results test fixe
 do not depend on the reader. Review time and correction effort cannot be measured on
 synthetic data; the dashboard shows average time from draft to submission for real use.
 
+## Changes in 0.3.0
+
+Two guard fixes came out of the 0.2.0 comparison: a customer's full listed name is now
+accepted when the request uses one of its aliases, and a site label inside a customer's
+name is no longer taken as the site. With them the rule-based reader is fully correct on
+**17 of 30** held-out cases (was 16; field accuracy still 137 of 150) and still 40 of 40
+on the original cases. The site fix was prompted by held-out case 17, so that case is no
+longer an unseen test. The AI comparison has not been re-run since; it would cost about
+$0.15 and needs Henry's go-ahead.
+
+## Labelled real samples (0.3.0)
+
+`python -m opsapp eval run --samples <folder>` scores the rule-based reader on redacted
+real requests labelled by hand (see [discovery/labelling.md](discovery/labelling.md)), and
+`eval compare --samples <folder> --yes` adds the AI reader. No samples have been collected
+yet, so there are no results.
+
 ## Rule-based versus AI reader
 
 `python -m opsapp eval compare --yes` runs the 70 reading cases (40 original, 30 held-out)

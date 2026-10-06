@@ -1,4 +1,4 @@
-# Architecture (version 0.2.0)
+# Architecture (version 0.3.0)
 
 One Python package, `opsapp`, run as two local processes that share one SQLite file:
 
@@ -15,10 +15,13 @@ src/opsapp/
                 reader, fallback/budget wrapper, output guard
   adapters/     action adapter port + simulated email and calendar with fault injection
   persistence/  SQLAlchemy models, engine/sessions, Alembic migrations, backup/restore
-  workflow/     WorkflowService (all use cases), audit chain, catalog snapshots
+  workflow/     WorkflowService (all use cases), audit chain, catalog snapshots,
+                price list CSV import, measurements
   dispatch/     outbox dispatcher: leasing, retries, timeouts, reconciliation
   web/          routes, view models, templates, samples
-  evals/        synthetic cases, held-out cases, evaluation runner and reader comparison
+  evals/        synthetic cases, held-out cases, labelled real samples, evaluation
+                runner and reader comparison
+  discovery/    offline redaction of real sample requests (files only, no database)
   verify.py     stdlib-only independent quote recalculation
 ```
 
@@ -124,3 +127,21 @@ pages read through a separate read-only session factory. Schema changes go throu
 
 Every event is appended to a per-tenant hash chain: each row stores the hash of the previous
 row plus its own content. `python -m opsapp audit verify` and the Audit log page recompute it.
+
+## Price list import and measurements (0.3.0)
+
+`workflow/catalog_import.py` parses a CSV price list into rows or a list of line errors,
+never both. `WorkflowService.import_catalog` turns a good file into a draft
+`PricingVersion` with the current rules, its prices, and the catalog details to apply in
+`catalog_changes` (migration 0002). New services are created inactive. On approval,
+`_apply_catalog_changes` updates and activates the imported services and deactivates the
+ones left out; drafts can instead be discarded.
+
+When a request is read, the workflow's `scope["proposed"]` records the customer, site,
+services and timeframe the reader proposed after the guard. `workflow/measures.py` compares
+that with the current quote version and takes step timings from the first `state_changed`
+event for each state.
+
+`discovery/redact.py` and `evals/samples.py` work only on files. Labelled samples are scored
+against the demo tenant's catalog, with the customer left unscored.
+
