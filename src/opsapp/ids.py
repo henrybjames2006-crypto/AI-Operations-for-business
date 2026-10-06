@@ -35,6 +35,8 @@ PREFIXES = {
     "ai_usage": "aiu",
     "sim_operation": "sim",
     "sim_fault": "flt",
+    "auth_session": "ses",
+    "recovery_code": "rcv",
 }
 
 

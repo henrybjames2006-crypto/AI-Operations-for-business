@@ -74,12 +74,49 @@ class Tenant(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("ux_users_email", "email", unique=True),)
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     tenant_id: Mapped[str] = tenant_fk()
     display_name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(20))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Sign-in (0.4.0). Users without a password can only be used in demo mode.
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    password_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class AuthSession(Base):
+    """A signed-in browser. The cookie holds a random token; only its SHA-256 is stored."""
+
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    token_sha256: Mapped[str] = mapped_column(String(64), unique=True)
+    tenant_id: Mapped[str] = tenant_fk()
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
+
+class RecoveryCode(Base):
+    """One-time codes for when the authenticator app is lost. Stored as SHA-256 only."""
+
+    __tablename__ = "recovery_codes"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    tenant_id: Mapped[str] = tenant_fk()
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    code_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class Customer(Base):

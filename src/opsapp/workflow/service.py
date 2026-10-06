@@ -202,7 +202,8 @@ class WorkflowService:
 
     def _tenant(self, s: Session, tenant_id: str) -> Tenant:
         tenant = s.get(Tenant, tenant_id)
-        assert tenant is not None
+        if tenant is None:  # a broken invariant, never a user error
+            raise RuntimeError("tenant is missing")
         return tenant
 
     # ------------------------------------------------------------------ intake
@@ -776,7 +777,8 @@ class WorkflowService:
                 if q.kind == "choose_customer":
                     customer = get_scoped(s, Customer, value, actor.tenant_id)
                     req = s.get(CustomerRequest, wf.request_id)
-                    assert req is not None
+                    if req is None:  # a broken invariant, never a user error
+                        raise RuntimeError("req is missing")
                     self._set_customer(s, scope, customer, req.sender)
                     scope["customer_source"] = f"Operator answer: {customer.name}"
                 else:
@@ -1691,7 +1693,8 @@ class WorkflowService:
                 )
             now = self.clock.now()
             tenant = s.get(Tenant, actor.tenant_id)
-            assert tenant is not None
+            if tenant is None:  # a broken invariant, never a user error
+                raise RuntimeError("tenant is missing")
             current = current_pricing_version(s, actor.tenant_id, now)
             existing = {
                 i.sku: i

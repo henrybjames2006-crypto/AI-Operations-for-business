@@ -8,6 +8,7 @@
 </head>
 <body>
 <div class="banner">LOCAL PROTOTYPE · FICTIONAL DATA · ALL EXTERNAL ACTIONS ARE SIMULATED · NOT FOR REAL CUSTOMERS</div>
+{% if demo_mode %}<div class="banner demo">DEMO MODE · NO PASSWORDS · ANYONE AT THIS COMPUTER CAN SIGN IN AS ANY USER</div>{% endif %}
 <header>
   <div class="bar">
     <span class="brand">Ops workflow</span>
@@ -22,10 +23,11 @@
       <a href="/measurements">Measurements</a>
       <a href="/audit">Audit log</a>
       <a href="/simulation">Simulation</a>
+      {% if perm(Permission.MANAGE_USERS) %}<a href="/users">Users</a>{% endif %}
     </nav>
-    <span class="who">{{ user.display_name }} · <strong>{{ user.role }}</strong> · {{ tenant_name }}
+    <span class="who"><a href="/account">{{ user.display_name }}</a> · <strong>{{ user.role }}</strong> · {{ tenant_name }}
       <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="secondary" style="padding:2px 8px;margin-left:6px">Switch user</button></form>
+        <button class="secondary compact">{% if demo_mode %}Switch user{% else %}Sign out{% endif %}</button></form>
     </span>
     {% endif %}
   </div>

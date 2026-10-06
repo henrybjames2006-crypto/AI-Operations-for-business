@@ -15,6 +15,7 @@ from pathlib import Path
 
 SECRET_ENV_NAMES = ("OPSAPP_SESSION_SECRET", "OPSAPP_AI_API_KEY")
 AI_PROVIDERS = ("mock", "anthropic")
+PLACEHOLDER_SECRET = "change-me-to-a-random-string"  # noqa: S105 # nosec B105
 AI_MODELS = ("claude-haiku-4-5", "claude-sonnet-5-5", "claude-opus-5-5")
 
 
@@ -46,6 +47,10 @@ class Settings:
     action_timeout_seconds: float = 10.0
     max_attempts: int = 3
     max_request_chars: int = 20_000
+    # Demo mode keeps the 0.1.0 "pick a user" sign-in for seed data. Never with real users.
+    demo_mode: bool = False
+    # True when no session secret was configured and a random one was made at start-up.
+    session_secret_generated: bool = False
 
     def __post_init__(self) -> None:
         if self.host not in {"127.0.0.1", "localhost"}:
@@ -60,6 +65,8 @@ class Settings:
             raise ValueError("OPSAPP_AI_BUDGET_USD must be between 0 and 100.")
         if not (1 <= self.ai_timeout_seconds <= 120):
             raise ValueError("OPSAPP_AI_TIMEOUT_SECONDS must be between 1 and 120.")
+        if len(self.session_secret) < 16:
+            raise ValueError("OPSAPP_SESSION_SECRET must be at least 16 characters.")
         if self.max_attempts < 1 or self.max_attempts > 5:
             raise ValueError("OPSAPP_MAX_ATTEMPTS must be between 1 and 5.")
 
@@ -78,9 +85,14 @@ def load_settings(env_file: Path | None = None) -> Settings:
         return os.environ.get(name, file_values.get(name, default))
 
     secret = get("OPSAPP_SESSION_SECRET", "")
-    if not secret or secret == "change-me-to-a-random-string":  # noqa: S105 - placeholder
-        # Ephemeral secret: sessions reset when the server restarts. Fine for local demos.
+    generated = False
+    if not secret or secret == PLACEHOLDER_SECRET:
+        # Ephemeral secret: allowed only in demo mode (the server refuses otherwise).
         secret = secrets.token_urlsafe(32)
+        generated = True
+    demo = get("OPSAPP_DEMO_MODE", "false").strip().lower()
+    if demo not in {"true", "false", "yes", "no", "1", "0"}:
+        raise ValueError("OPSAPP_DEMO_MODE must be true or false.")
     return Settings(
         database_path=Path(get("OPSAPP_DATABASE_PATH", "data/opsapp.sqlite")),
         session_secret=secret,
@@ -93,4 +105,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
         dispatch_poll_seconds=float(get("OPSAPP_DISPATCH_POLL_SECONDS", "2")),
         action_timeout_seconds=float(get("OPSAPP_ACTION_TIMEOUT_SECONDS", "10")),
         max_attempts=int(get("OPSAPP_MAX_ATTEMPTS", "3")),
+        demo_mode=demo in {"true", "yes", "1"},
+        session_secret_generated=generated,
     )

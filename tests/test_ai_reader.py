@@ -339,9 +339,12 @@ FAKE_KEY = "sk-ant-api03-" + "PLANTEDFAKEKEY" * 4
 
 def test_api_key_is_required_and_never_shown() -> None:
     with pytest.raises(ValueError, match="OPSAPP_AI_API_KEY"):
-        Settings(database_path=Path("x"), session_secret="s", ai_provider="anthropic")
+        Settings(database_path=Path("x"), session_secret="s" * 16, ai_provider="anthropic")
     st = Settings(
-        database_path=Path("x"), session_secret="s", ai_provider="anthropic", ai_api_key=FAKE_KEY
+        database_path=Path("x"),
+        session_secret="s" * 16,
+        ai_provider="anthropic",
+        ai_api_key=FAKE_KEY,
     )
     assert FAKE_KEY not in repr(st)
     assert "PLANTEDFAKEKEY" not in redact(f"key={FAKE_KEY}")
@@ -349,9 +352,9 @@ def test_api_key_is_required_and_never_shown() -> None:
 
 def test_unknown_provider_and_model_are_refused() -> None:
     with pytest.raises(ValueError):
-        Settings(database_path=Path("x"), session_secret="s", ai_provider="openai")
+        Settings(database_path=Path("x"), session_secret="s" * 16, ai_provider="openai")
     with pytest.raises(ValueError):
-        Settings(database_path=Path("x"), session_secret="s", ai_model="claude-unknown")
+        Settings(database_path=Path("x"), session_secret="s" * 16, ai_model="claude-unknown")
 
 
 def test_planted_key_never_reaches_logs(caplog: pytest.LogCaptureFixture) -> None:

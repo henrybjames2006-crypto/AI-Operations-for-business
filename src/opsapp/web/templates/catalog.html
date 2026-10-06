@@ -42,9 +42,9 @@
     <li>Rounding: each line to cents, half up. Tax: not calculated.</li></ul>
   {% if v.dropped %}<p class="small"><strong>No longer offered after approval:</strong> {% for sku in v.dropped %}<code>{{ sku }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if v.pv.status == 'draft' and can_manage %}
-  <form method="post" action="/catalog/pricing/{{ v.pv.id }}/approve" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <form method="post" action="/catalog/pricing/{{ v.pv.id }}/approve" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="secondary">Approve this pricing version</button></form>
-  <form method="post" action="/catalog/pricing/{{ v.pv.id }}/discard" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <form method="post" action="/catalog/pricing/{{ v.pv.id }}/discard" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="secondary">Discard this draft</button></form>
   {% endif %}
 </div>

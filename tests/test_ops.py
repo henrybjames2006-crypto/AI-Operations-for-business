@@ -27,7 +27,15 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         r[0]
         for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    assert {"workflows", "quote_versions", "audit_events", "outbox"} <= tables
+    assert {"workflows", "quote_versions", "audit_events", "outbox", "auth_sessions"} <= tables
+    migrate.downgrade(db, "-1")  # 0003: sign-in tables and columns go
+    names = {
+        r[0]
+        for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert "auth_sessions" not in names and "recovery_codes" not in names
+    user_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(users)")}
+    assert "password_hash" not in user_cols and "email" in user_cols
     migrate.downgrade(db, "-1")  # 0002: the catalog_changes column goes, tables stay
     cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(pricing_versions)")}
     assert "catalog_changes" not in cols and "notes" in cols
@@ -160,7 +168,7 @@ def test_server_refuses_non_local_binding() -> None:
     from opsapp.config import Settings
 
     with pytest.raises(ValueError, match="127.0.0.1"):
-        Settings(database_path=Path("x"), session_secret="s", host="0.0.0.0")  # noqa: S104
+        Settings(database_path=Path("x"), session_secret="s" * 16, host="0.0.0.0")  # noqa: S104
 
 
 def test_redaction_covers_common_secret_shapes() -> None:

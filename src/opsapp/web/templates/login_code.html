@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Enter your code{% endblock %}
+{% block content %}
+<div class="panel signin">
+  <h1>Enter your code</h1>
+  {% if error %}<div class="msg error">{{ error }}</div>{% endif %}
+  <p>Open your authenticator app and enter the 6-digit code for this app.</p>
+  <form method="post" action="/login/code">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="code">Code</label>
+    <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+    <p><button>Sign in</button></p>
+  </form>
+  <p class="small muted">No phone? Enter one of your recovery codes instead (like <code>abcde-fghjk</code>).
+    Each one works once.</p>
+</div>
+{% endblock %}

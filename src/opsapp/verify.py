@@ -76,3 +76,43 @@ def recompute_quote_version(s: Session, quote_version_id: str) -> tuple[bool, st
     )
     out.append("Result: " + ("MATCH" if ok else "MISMATCH"))
     return ok, "\n".join(out)
+
+
+def verify_audit_export(text: str) -> tuple[bool, str]:
+    """Check an exported audit log (JSON) using only the standard library.
+
+    Written separately from ``workflow.audit``, following the rule stated in the export, so a
+    mistake in either is likely to show up as a mismatch.
+    """
+    import hashlib
+    import json
+
+    try:
+        doc = json.loads(text)
+        events = doc["events"]
+        tenant_id = doc["tenant_id"]
+    except ValueError, KeyError, TypeError:
+        return False, "Not an audit export file."
+    prev = "0" * 64
+    for i, ev in enumerate(events, start=1):
+        if ev.get("seq") != i:
+            return False, f"Event {i}: sequence number is {ev.get('seq')} (events missing?)."
+        if ev.get("prev_hash") != prev:
+            return False, f"Event {i}: does not link to the event before it."
+        body = {
+            "tenant_id": tenant_id,
+            "seq": ev["seq"],
+            "workflow_id": ev["workflow_id"],
+            "actor_type": ev["actor_type"],
+            "actor_id": ev["actor_id"],
+            "event_type": ev["event_type"],
+            "message": ev["message"],
+            "data": ev["data"],
+            "at": ev["at"],
+            "prev_hash": ev["prev_hash"],
+        }
+        text_body = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        if hashlib.sha256(text_body.encode("utf-8")).hexdigest() != ev.get("hash"):
+            return False, f"Event {i}: contents do not match its hash (edited?)."
+        prev = ev["hash"]
+    return True, f"{len(events)} events, chain intact."

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Your recovery codes{% endblock %}
+{% block content %}
+<div class="panel signin">
+  <h1>Your recovery codes</h1>
+  <div class="msg warn">Save these now: they are shown only once. Each code signs you in once if you
+    don't have your phone. Keep them somewhere safe, away from your computer, for example printed.</div>
+  {% if not first %}<p>Your old recovery codes no longer work.</p>{% endif %}
+  <ul class="codes">{% for code in codes %}<li>{{ code }}</li>{% endfor %}</ul>
+  <p><a class="button" href="/">I have saved them, continue</a></p>
+</div>
+{% endblock %}

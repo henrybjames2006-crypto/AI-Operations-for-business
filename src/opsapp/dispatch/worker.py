@@ -170,9 +170,11 @@ class Dispatcher:
             ).all()
             for entry in candidates:
                 action = s.get(ProposedAction, entry.action_id)
-                assert action is not None
+                if action is None:  # a broken invariant, never a user error
+                    raise RuntimeError("action is missing")
                 wf = s.get(WorkflowInstance, action.workflow_id)
-                assert wf is not None
+                if wf is None:  # a broken invariant, never a user error
+                    raise RuntimeError("wf is missing")
                 if action.status in ("voided", "succeeded", "failed", "escalated"):
                     entry.done = True
                     continue
@@ -269,9 +271,11 @@ class Dispatcher:
             entry = s.get(OutboxEntry, claim.entry_id)
             action = s.get(ProposedAction, claim.action_id)
             attempt = s.get(ExecutionAttempt, claim.attempt_id)
-            assert entry and action and attempt
+            if not (entry and action and attempt):
+                raise RuntimeError("outbox entry, action or attempt is missing")
             wf = s.get(WorkflowInstance, action.workflow_id)
-            assert wf is not None
+            if wf is None:  # a broken invariant, never a user error
+                raise RuntimeError("wf is missing")
             attempt.finished_at = now
             entry.claimed_by = None
             entry.claimed_until = None
@@ -350,7 +354,8 @@ class Dispatcher:
                     )
                 return
 
-            assert isinstance(result, LookupResult)
+            if not isinstance(result, LookupResult):
+                raise RuntimeError("lookup returned an unexpected result")
             attempt.outcome = result.status
             if result.status == "found":
                 attempt.external_ref = result.external_ref

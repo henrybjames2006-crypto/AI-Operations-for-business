@@ -42,3 +42,7 @@ class CatalogImportError(ValidationError):
     def __init__(self, problems: list[str]) -> None:
         super().__init__(f"The file was not imported: {len(problems)} problem(s) found.")
         self.problems = problems
+
+
+class SignInFailed(DomainError):
+    """Sign-in was refused. The message never says which part was wrong."""

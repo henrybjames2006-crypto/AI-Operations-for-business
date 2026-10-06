@@ -8,6 +8,7 @@ only; they say nothing about real customers, time saved or willingness to pay.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -47,7 +48,10 @@ class Run:
     def __init__(self, reader: ReaderFactory | None = None) -> None:
         self.clock = FixedClock(START)
         self.c: Container = build(
-            Settings(database_path=Path("unused"), session_secret="eval-only-secret"),
+            Settings(
+                database_path=Path("unused"),
+                session_secret=secrets.token_urlsafe(32),
+            ),
             self.clock,
             memory=True,
         )
@@ -73,7 +77,8 @@ class Run:
     def wf(self, wf_id: str) -> WorkflowInstance:
         with self.c.read_sf() as s:
             w = s.get(WorkflowInstance, wf_id)
-            assert w is not None
+            if w is None:  # a broken invariant, never a user error
+                raise RuntimeError("w is missing")
             s.expunge(w)
             return w
 

@@ -10,6 +10,7 @@ import logging
 import secrets
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -21,18 +22,27 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 
+from ..auth import totp
+from ..auth.service import IDLE_MINUTES, PENDING_MINUTES, any_password_set
 from ..authz import load_actor, require
 from ..clock import Clock
 from ..config import Settings
 from ..container import Container, build
-from ..domain.errors import CatalogImportError, DomainError, NotFound, PermissionDenied
+from ..domain.errors import (
+    CatalogImportError,
+    DomainError,
+    NotFound,
+    PermissionDenied,
+    SignInFailed,
+)
 from ..domain.money import format_usd
 from ..domain.roles import ROLE_TEXT, Permission, Role, has_permission
 from ..persistence.models import Tenant, User
 from ..redaction import redact
-from ..workflow import measures
+from ..workflow import audit_export, measures
 from ..workflow.catalog_import import MAX_BYTES as MAX_IMPORT_BYTES
 from . import views
+from .hardening import SecurityHeaders, SizeLimit
 from .samples import SAMPLES
 
 log = logging.getLogger(__name__)
@@ -43,25 +53,49 @@ class LoginRequired(Exception):
     pass
 
 
+class PasswordChangeRequired(Exception):
+    pass
+
+
+# Pages a user who must change their password can still reach.
+_PASSWORD_CHANGE_PATHS = {"/account/password", "/logout"}
+
+
 def create_app(
     settings: Settings, clock: Clock | None = None, container: Container | None = None
 ) -> FastAPI:
     c = container or build(settings, clock)
+    if settings.demo_mode and any_password_set(c.read_sf):
+        raise RuntimeError(
+            "Demo mode is only for databases where nobody has a password. Use a separate "
+            "database for the demo (OPSAPP_DATABASE_PATH=data/demo.sqlite) or turn "
+            "OPSAPP_DEMO_MODE off."
+        )
+    if not settings.demo_mode and settings.session_secret_generated:
+        raise RuntimeError(
+            "Set OPSAPP_SESSION_SECRET in .env to your own random value (see .env.example). "
+            "Sign-in needs it."
+        )
     app = FastAPI(
         title="Operations workflow prototype", docs_url=None, redoc_url=None, openapi_url=None
     )
     app.state.container = c
+    # Order: the last added runs first. Size limits apply before anything reads the body.
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret,
         session_cookie="opsapp_session",
         same_site="strict",
+        # The app is only served on http://127.0.0.1, so the cookie can't require HTTPS.
+        # A hosted version must set this to True.
         https_only=False,
         max_age=8 * 3600,
     )
+    app.add_middleware(SecurityHeaders)
+    app.add_middleware(SizeLimit, max_bytes=MAX_IMPORT_BYTES + 100_000)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(usd=format_usd, ROLE_TEXT=ROLE_TEXT)
+    templates.env.globals.update(usd=format_usd, ROLE_TEXT=ROLE_TEXT, demo_mode=settings.demo_mode)
     templates.env.filters["usd"] = lambda v: format_usd(Decimal(str(v))) if v is not None else ""
     # AI costs are fractions of a cent per request, so show four decimal places.
     templates.env.filters["usd4"] = lambda v: f"${Decimal(str(v)):.4f}" if v is not None else ""
@@ -70,8 +104,16 @@ def create_app(
     # ------------------------------------------------------------------ helpers
 
     def current_user(request: Request) -> User:
-        uid = request.session.get("user_id")
+        uid = c.auth.session_user(str(request.session.get("sid", "")))
         if not uid:
+            if request.session.get("sid"):
+                request.session.clear()
+                flash(
+                    request,
+                    f"You were signed out (after {IDLE_MINUTES} minutes without activity, at "
+                    "the end of the day, or by an owner). Sign in again.",
+                    "warn",
+                )
             raise LoginRequired()
         with c.read_sf() as s:
             try:
@@ -80,7 +122,31 @@ def create_app(
                 request.session.clear()
                 raise LoginRequired() from exc
             s.expunge(user)
-            return user
+        if user.must_change_password and request.url.path not in _PASSWORD_CHANGE_PATHS:
+            raise PasswordChangeRequired()
+        return user
+
+    def pending_user(request: Request) -> str:
+        """The user between the password step and the code step, if still in time."""
+        uid = request.session.get("pending_user")
+        at = request.session.get("pending_at")
+        if not uid or not at:
+            raise LoginRequired()
+        started = datetime.fromisoformat(str(at))
+        if c.clock.now() - started > timedelta(minutes=PENDING_MINUTES):
+            request.session.clear()
+            flash(request, "That took too long. Sign in again.", "warn")
+            raise LoginRequired()
+        return str(uid)
+
+    def finish_sign_in(request: Request, user_id: str, *, demo: bool = False) -> None:
+        token = c.auth.start_session(user_id, demo=demo)
+        flashes = request.session.get("flash", [])
+        # A new cookie session at sign-in, so nothing from before carries over.
+        request.session.clear()
+        request.session["sid"] = token
+        if flashes:
+            request.session["flash"] = flashes
 
     def csrf_token(request: Request) -> str:
         tok = request.session.get("csrf")
@@ -151,6 +217,10 @@ def create_app(
     async def _login_required(request: Request, _exc: LoginRequired) -> Response:
         return RedirectResponse("/login", status_code=303)
 
+    @app.exception_handler(PasswordChangeRequired)
+    async def _password_change(request: Request, _exc: PasswordChangeRequired) -> Response:
+        return RedirectResponse("/account/password", status_code=303)
+
     @app.exception_handler(NotFound)
     async def _not_found(request: Request, exc: NotFound) -> Response:
         return render(
@@ -174,36 +244,253 @@ def create_app(
     def _maybe_user(request: Request) -> User | None:
         try:
             return current_user(request)
-        except LoginRequired:
+        except LoginRequired, PasswordChangeRequired:
             return None
 
     # ------------------------------------------------------------------ sign-in
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request) -> Response:
+        if not settings.demo_mode:
+            return render(request, "login.html", {"email": ""})
         with c.read_sf() as s:
             tenants = list(s.scalars(select(Tenant).order_by(Tenant.name)))
             users = list(
                 s.scalars(select(User).where(User.is_active.is_(True)).order_by(User.display_name))
             )
-        return render(request, "login.html", {"tenants": tenants, "users": users})
+        return render(request, "login_demo.html", {"tenants": tenants, "users": users})
 
     @app.post("/login")
-    def login(request: Request, user_id: str = Form(...), csrf: str = Form("")) -> Response:
+    def login(
+        request: Request,
+        email: str = Form(""),
+        password: str = Form(""),
+        user_id: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
         check_csrf(request, csrf)
-        with c.read_sf() as s:
-            user = s.get(User, user_id)
-            if user is None or not user.is_active:
-                raise HTTPException(400, "Unknown user")
+        if settings.demo_mode:
+            with c.read_sf() as s:
+                user = s.get(User, user_id)
+                if user is None or not user.is_active or user.password_hash is not None:
+                    raise HTTPException(400, "Unknown user")
+            finish_sign_in(request, user_id, demo=True)
+            return RedirectResponse("/", status_code=303)
+        try:
+            ok = c.auth.check_password(email, password)
+        except SignInFailed as exc:
+            return render(request, "login.html", {"email": email, "error": str(exc)}, status=400)
         request.session.clear()
-        request.session["user_id"] = user_id
+        request.session["pending_user"] = ok.user_id
+        request.session["pending_at"] = c.clock.now().isoformat()
+        return RedirectResponse(
+            "/login/setup" if ok.needs_setup else "/login/code", status_code=303
+        )
+
+    @app.get("/login/code", response_class=HTMLResponse)
+    def code_page(request: Request) -> Response:
+        pending_user(request)
+        return render(request, "login_code.html", {})
+
+    @app.post("/login/code")
+    def code_submit(request: Request, code: str = Form(""), csrf: str = Form("")) -> Response:
+        check_csrf(request, csrf)
+        uid = pending_user(request)
+        try:
+            used_recovery = c.auth.check_second_factor(uid, code)
+        except SignInFailed as exc:
+            return render(request, "login_code.html", {"error": str(exc)}, status=400)
+        if used_recovery:
+            flash(
+                request,
+                "You signed in with a recovery code, which can't be used again. If you lost "
+                "your phone, ask an owner to reset your authenticator app.",
+                "warn",
+            )
+        finish_sign_in(request, uid)
         return RedirectResponse("/", status_code=303)
+
+    @app.get("/login/setup", response_class=HTMLResponse)
+    def setup_page(request: Request) -> Response:
+        uid = pending_user(request)
+        try:
+            secret, account = c.auth.totp_setup_secret(uid)
+        except DomainError:
+            request.session.clear()
+            raise LoginRequired() from None
+        uri = totp.provisioning_uri(secret, account)
+        return render(
+            request,
+            "login_setup.html",
+            {"qr": totp.qr_svg_data_uri(uri), "key": totp.grouped(secret)},
+        )
+
+    @app.post("/login/setup")
+    def setup_submit(request: Request, code: str = Form(""), csrf: str = Form("")) -> Response:
+        check_csrf(request, csrf)
+        uid = pending_user(request)
+        try:
+            codes = c.auth.confirm_totp(uid, code)
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/login/setup", status_code=303)
+        finish_sign_in(request, uid)
+        user = _maybe_user(request)
+        return render(request, "recovery_codes.html", {"codes": codes, "first": True}, user=user)
 
     @app.post("/logout")
     def logout(request: Request, csrf: str = Form("")) -> Response:
         check_csrf(request, csrf)
+        token = request.session.get("sid")
+        if token:
+            c.auth.end_session(str(token))
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
+
+    # ------------------------------------------------------------------ own account
+
+    @app.get("/account", response_class=HTMLResponse)
+    def account(request: Request) -> Response:
+        user = current_user(request)
+        return render(request, "account.html", {}, user=user)
+
+    @app.get("/account/password", response_class=HTMLResponse)
+    def password_page(request: Request) -> Response:
+        user = current_user(request)
+        return render(request, "password.html", {}, user=user)
+
+    @app.post("/account/password")
+    def password_submit(
+        request: Request,
+        current: str = Form(""),
+        new: str = Form(""),
+        repeat: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if new != repeat:
+            flash(request, "The two new passwords are not the same.", "error")
+            return RedirectResponse("/account/password", status_code=303)
+        try:
+            c.auth.change_password(user.id, current, new, keep_token=request.session.get("sid"))
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/account/password", status_code=303)
+        flash(request, "Password changed. Other browsers signed in as you were signed out.", "ok")
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/account/recovery-codes")
+    def recovery_codes(request: Request, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if user.totp_confirmed_at is None:
+            raise PermissionDenied("Set up an authenticator app first.")
+        codes = c.auth.new_recovery_codes(user.id)
+        return render(request, "recovery_codes.html", {"codes": codes, "first": False}, user=user)
+
+    # ------------------------------------------------------------------ owner: users
+
+    @app.get("/users", response_class=HTMLResponse)
+    def users_page(request: Request) -> Response:
+        user = current_user(request)
+        rows = c.auth.list_users(user.id)
+        return render(request, "users.html", {"rows": rows, "roles": list(Role)}, user=user)
+
+    def no_user_changes_in_demo(request: Request) -> Response | None:
+        if not settings.demo_mode:
+            return None
+        flash(
+            request,
+            "Users can't be changed in demo mode. Turn demo mode off to use real sign-in.",
+            "error",
+        )
+        return RedirectResponse("/users", status_code=303)
+
+    def show_temporary(request: Request, user: User, who: str, temp: str) -> Response:
+        return render(request, "temporary_password.html", {"who": who, "temp": temp}, user=user)
+
+    @app.post("/users")
+    def add_user(
+        request: Request,
+        display_name: str = Form(""),
+        email: str = Form(""),
+        role: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if (blocked := no_user_changes_in_demo(request)) is not None:
+            return blocked
+        try:
+            temp = c.auth.add_user(user.id, display_name, email, role)
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/users", status_code=303)
+        return show_temporary(request, user, display_name.strip(), temp)
+
+    @app.post("/users/{user_id}/reset-password")
+    def reset_password(request: Request, user_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if (blocked := no_user_changes_in_demo(request)) is not None:
+            return blocked
+        try:
+            temp = c.auth.reset_password(user.id, user_id)
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/users", status_code=303)
+        with c.read_sf() as s:
+            target = s.get(User, user_id)
+            name = target.display_name if target else ""
+        return show_temporary(request, user, name, temp)
+
+    @app.post("/users/{user_id}/reset-second-factor")
+    def reset_second_factor(request: Request, user_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if (blocked := no_user_changes_in_demo(request)) is not None:
+            return blocked
+        return act(
+            request,
+            user,
+            lambda: c.auth.reset_second_factor(user.id, user_id),
+            "/users",
+            "Authenticator app reset. They set it up again at their next sign-in, and their "
+            "sessions were ended.",
+        )
+
+    @app.post("/users/{user_id}/disable")
+    def disable_user(request: Request, user_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if (blocked := no_user_changes_in_demo(request)) is not None:
+            return blocked
+        return act(
+            request,
+            user,
+            lambda: c.auth.set_active(user.id, user_id, False),
+            "/users",
+            "User disabled and signed out everywhere.",
+        )
+
+    @app.post("/users/{user_id}/enable")
+    def enable_user(request: Request, user_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        if (blocked := no_user_changes_in_demo(request)) is not None:
+            return blocked
+        return act(
+            request,
+            user,
+            lambda: c.auth.set_active(user.id, user_id, True),
+            "/users",
+            "User enabled.",
+        )
 
     # ------------------------------------------------------------------ pages
 
@@ -604,5 +891,29 @@ def create_app(
         with c.read_sf() as s:
             data = views.audit_view(s, user)
         return render(request, "audit.html", data, user=user)
+
+    @app.get("/audit/export.json")
+    def audit_export_json(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            require(load_actor(s, user.id), Permission.EXPORT_AUDIT)
+            body = audit_export.to_json(s, user.tenant_id, c.clock.now())
+        return Response(
+            body,
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="audit-log.json"'},
+        )
+
+    @app.get("/audit/export.csv")
+    def audit_export_csv(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            require(load_actor(s, user.id), Permission.EXPORT_AUDIT)
+            body = audit_export.to_csv(s, user.tenant_id)
+        return Response(
+            body,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="audit-log.csv"'},
+        )
 
     return app
