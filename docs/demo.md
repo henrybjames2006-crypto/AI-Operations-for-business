@@ -63,10 +63,12 @@ Try the safety checks if you like:
 
 ## 4. Simulated execution
 
-Open **Simulation**. Optionally inject a fault first: adapter `sim_email`, mode
+Click **Switch user** and sign in as **Dana Ortiz** (owner): only the owner sees the
+simulation controls. Open **Simulation**. Optionally inject a fault first: adapter `sim_email`, mode
 `drop_response` (the email is recorded, but the reply is "lost"), then **Queue fault**.
 
-Click **Run dispatcher once** (or run `python -m opsapp dispatch` in a second window). With
+Click **Run dispatcher once** (or, signed in as anyone, run `python -m opsapp dispatch --once`
+in a second window). With
 the lost-response fault, the dispatcher looks up the uncertain send by its idempotency key,
 finds it, and marks it succeeded without sending twice. The Simulation page lists exactly one
 simulated email.

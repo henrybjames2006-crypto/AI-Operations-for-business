@@ -120,8 +120,9 @@ same order) showing the ask. quantity is the number as digits in a string ("5", 
 given for that service ("a few", "some", "all of them" are not numbers). quantity_text is \
 the words used for the quantity, or null.
 - unsupported: work the customer asks for that matches no catalog service, quoted briefly.
-- customer_mentions: customer names or aliases from <customers> that appear in the request, \
-spelled exactly as listed. Do not guess from partial names.
+- customer_mentions: customer names or aliases from <customers> that appear in the request. \
+Copy the name or alias exactly as it is written in the request (for example the alias, not \
+the full name, when the request uses the alias). Do not guess from partial names.
 - site_mentions: site labels from <sites> that appear in the request, spelled as listed.
 - timeframe: "tomorrow", "this_week", "next_week", "asap", or "date:YYYY-MM-DD" for a \
 specific date (use <today> to resolve the year); null if none is given. timeframe_text is \
