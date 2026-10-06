@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,11 +25,12 @@ from ..authz import load_actor, require
 from ..clock import Clock
 from ..config import Settings
 from ..container import Container, build
-from ..domain.errors import DomainError, NotFound, PermissionDenied
+from ..domain.errors import CatalogImportError, DomainError, NotFound, PermissionDenied
 from ..domain.money import format_usd
 from ..domain.roles import ROLE_TEXT, Permission, Role, has_permission
 from ..persistence.models import Tenant, User
 from ..redaction import redact
+from ..workflow.catalog_import import MAX_BYTES as MAX_IMPORT_BYTES
 from . import views
 from .samples import SAMPLES
 
@@ -477,6 +478,56 @@ def create_app(
         with c.read_sf() as s:
             data = views.catalog_view(s, user)
         return render(request, "catalog.html", data, user=user)
+
+    @app.get("/catalog/template.csv")
+    def catalog_template(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            body = views.catalog_csv(s, user)
+        return Response(
+            body,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="price-list.csv"'},
+        )
+
+    @app.post("/catalog/import")
+    async def catalog_import(
+        request: Request, file: UploadFile = File(...), csrf: str = Form("")
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        data = await file.read(MAX_IMPORT_BYTES + 1)
+        try:
+            number = c.service.import_catalog(user.id, data, file.filename or "")
+        except CatalogImportError as exc:
+            with c.read_sf() as s:
+                ctx = views.catalog_view(s, user)
+            ctx["import_problems"] = exc.problems
+            return render(request, "catalog.html", ctx, status=422, user=user)
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/catalog", status_code=303)
+        flash(
+            request,
+            f"Imported as draft pricing version {number}. Check it below, then approve it "
+            f"to start using it.",
+            "ok",
+        )
+        return RedirectResponse("/catalog", status_code=303)
+
+    @app.post("/catalog/pricing/{pv_id}/discard")
+    def discard_pricing(request: Request, pv_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.service.discard_pricing_version(user.id, pv_id),
+            "/catalog",
+            "Draft discarded. Nothing was changed.",
+        )
 
     @app.post("/catalog/pricing/{pv_id}/approve")
     def approve_pricing(request: Request, pv_id: str, csrf: str = Form("")) -> Response:

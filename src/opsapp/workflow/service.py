@@ -12,6 +12,7 @@ execution are decided here and in the domain layer, never by the extractor.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from ..ai.schema import CatalogHint, CustomerHint, ExtractionContext
 from ..authz import get_scoped, load_actor, require
 from ..clock import Clock
 from ..domain.errors import (
+    CatalogImportError,
     Conflict,
     DomainError,
     InvalidTransition,
@@ -53,6 +55,7 @@ from ..persistence.models import (
     ExternalOperation,
     ExtractionResult,
     OutboxEntry,
+    PriceEntryRow,
     PricingVersion,
     ProposedAction,
     Quote,
@@ -64,6 +67,7 @@ from ..persistence.models import (
 )
 from . import audit
 from .catalog import current_pricing_version, snapshot_for, snapshot_to_json
+from .catalog_import import parse_catalog_csv
 
 T = TypeVar("T")
 
@@ -1616,6 +1620,8 @@ class WorkflowService:
             pv.approved_by = actor.id
             pv.approved_at = now
             pv.effective_from = max(pv.effective_from, now)
+            if pv.catalog_changes is not None:
+                self._apply_catalog_changes(s, actor, pv)
             self._audit(
                 s,
                 None,
@@ -1623,6 +1629,160 @@ class WorkflowService:
                 "pricing_version_approved",
                 f"Pricing version {pv.version_no} approved by {actor.display_name}. "
                 f"Existing quotes keep the version they were calculated with.",
+            )
+
+        self._run(actor_id, run)
+
+    def _apply_catalog_changes(self, s: Session, actor: User, pv: PricingVersion) -> None:
+        """Bring the service list in line with an imported version as it is approved."""
+        changes = {c["sku"]: c for c in pv.catalog_changes or []}
+        items = s.scalars(select(CatalogItem).where(CatalogItem.tenant_id == actor.tenant_id))
+        removed: list[str] = []
+        for item in items:
+            change = changes.get(item.sku)
+            if change is None:
+                if item.active:
+                    item.active = False
+                    removed.append(item.sku)
+                continue
+            item.name = change["name"]
+            item.unit = change["unit"]
+            item.description = change["description"]
+            item.keywords = list(change["keywords"])
+            item.quantity_step = Decimal(change["quantity_step"])
+            item.onsite = bool(change["onsite"])
+            item.active = True
+        if removed:
+            self._audit(
+                s,
+                None,
+                actor,
+                "catalog_services_removed",
+                f"Services no longer offered after pricing version {pv.version_no}: "
+                f"{', '.join(sorted(removed))}.",
+                {"skus": sorted(removed)},
+            )
+
+    def import_catalog(self, actor_id: str, data: bytes, filename: str) -> int:
+        """Save a CSV price list as a draft pricing version. Returns its version number."""
+
+        def run(s: Session, actor: User) -> int:
+            require(actor, Permission.MANAGE_CATALOG)
+            parsed = parse_catalog_csv(data)
+            if parsed.errors:
+                raise CatalogImportError(parsed.errors)
+            pending = s.scalars(
+                select(PricingVersion).where(
+                    PricingVersion.tenant_id == actor.tenant_id, PricingVersion.status == "draft"
+                )
+            ).first()
+            if pending is not None:
+                raise ValidationError(
+                    f"Pricing version {pending.version_no} is still a draft. Approve or "
+                    f"discard it before importing another file."
+                )
+            now = self.clock.now()
+            tenant = s.get(Tenant, actor.tenant_id)
+            assert tenant is not None
+            current = current_pricing_version(s, actor.tenant_id, now)
+            existing = {
+                i.sku: i
+                for i in s.scalars(
+                    select(CatalogItem).where(CatalogItem.tenant_id == actor.tenant_id)
+                )
+            }
+            active = {sku for sku, i in existing.items() if i.active}
+            number = (
+                s.scalar(
+                    select(func.max(PricingVersion.version_no)).where(
+                        PricingVersion.tenant_id == actor.tenant_id
+                    )
+                )
+                or 0
+            ) + 1
+            new_skus = [r.sku for r in parsed.rows if r.sku not in active]
+            dropped = sorted(active - {r.sku for r in parsed.rows})
+            name = re.sub(r"[^\w .()-]", "", filename)[:80] or "a file"
+            pv = PricingVersion(
+                id=new_id("pricing_version"),
+                tenant_id=actor.tenant_id,
+                version_no=number,
+                currency=tenant.currency,
+                status="draft",
+                effective_from=now,
+                rules=list(current.rules),
+                notes=(
+                    f"Imported from {name} by {actor.display_name}: {len(parsed.rows)} "
+                    f"services ({len(new_skus)} new, {len(dropped)} no longer offered). "
+                    f"Rules copied from version {current.version_no}."
+                ),
+                catalog_changes=[r.catalog_fields() for r in parsed.rows],
+            )
+            s.add(pv)
+            s.flush()
+            for r in parsed.rows:
+                item = existing.get(r.sku)
+                if item is None:
+                    # New services stay hidden from readers and quotes until approval.
+                    item = CatalogItem(
+                        id=new_id("catalog_item"),
+                        tenant_id=actor.tenant_id,
+                        sku=r.sku,
+                        name=r.name,
+                        unit=r.unit,
+                        description=r.description,
+                        keywords=list(r.keywords),
+                        quantity_step=r.quantity_step,
+                        onsite=r.onsite,
+                        active=False,
+                    )
+                    s.add(item)
+                    s.flush()
+                s.add(
+                    PriceEntryRow(
+                        id=new_id("price_entry"),
+                        tenant_id=actor.tenant_id,
+                        pricing_version_id=pv.id,
+                        catalog_item_id=item.id,
+                        unit_price=r.unit_price,
+                        currency=tenant.currency,
+                        min_qty=r.min_qty,
+                        max_qty=r.max_qty,
+                    )
+                )
+            self._audit(
+                s,
+                None,
+                actor,
+                "catalog_imported",
+                f"Price list imported from {name} as draft pricing version {number}: "
+                f"{len(parsed.rows)} services, {len(new_skus)} new, {len(dropped)} no longer "
+                f"offered. Nothing changes until it is approved.",
+                {
+                    "pricing_version_id": pv.id,
+                    "services": len(parsed.rows),
+                    "new": new_skus,
+                    "no_longer_offered": dropped,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                },
+            )
+            return number
+
+        return self._run(actor_id, run)
+
+    def discard_pricing_version(self, actor_id: str, pricing_version_id: str) -> None:
+        def run(s: Session, actor: User) -> None:
+            require(actor, Permission.MANAGE_CATALOG)
+            pv = get_scoped(s, PricingVersion, pricing_version_id, actor.tenant_id)
+            if pv.status != "draft":
+                raise ValidationError("Only draft pricing versions can be discarded.")
+            pv.status = "discarded"
+            self._audit(
+                s,
+                None,
+                actor,
+                "pricing_version_discarded",
+                f"Draft pricing version {pv.version_no} discarded by {actor.display_name}.",
             )
 
         self._run(actor_id, run)

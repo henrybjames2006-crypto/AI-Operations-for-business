@@ -28,7 +28,10 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     assert {"workflows", "quote_versions", "audit_events", "outbox"} <= tables
-    migrate.downgrade(db, "-1")
+    migrate.downgrade(db, "-1")  # 0002: the catalog_changes column goes, tables stay
+    cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(pricing_versions)")}
+    assert "catalog_changes" not in cols and "notes" in cols
+    migrate.downgrade(db, "base")
     tables = {
         r[0]
         for r in sqlite3.connect(db).execute("SELECT name FROM sqlite_master WHERE type='table'")

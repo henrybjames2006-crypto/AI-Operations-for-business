@@ -185,12 +185,15 @@ class PricingVersion(Base):
     tenant_id: Mapped[str] = tenant_fk()
     version_no: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3))
-    status: Mapped[str] = mapped_column(String(20))  # draft | approved | retired
+    status: Mapped[str] = mapped_column(String(20))  # draft | approved | retired | discarded
     effective_from: Mapped[datetime] = mapped_column(UTCDateTime())
     rules: Mapped[list[Any]] = mapped_column(JSON, default=list)
     approved_by: Mapped[str | None] = mapped_column(String(40), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Set on versions imported from a file: the catalog details (names, keywords, steps)
+    # applied to the services when this version is approved. None for other versions.
+    catalog_changes: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class PriceEntryRow(Base):

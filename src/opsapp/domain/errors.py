@@ -34,3 +34,11 @@ class Conflict(DomainError):
 
 class StaleApproval(Conflict):
     """An approval refers to a quote or action version that is no longer current."""
+
+
+class CatalogImportError(ValidationError):
+    """A catalog file had problems; nothing was saved. ``problems`` lists each one."""
+
+    def __init__(self, problems: list[str]) -> None:
+        super().__init__(f"The file was not imported: {len(problems)} problem(s) found.")
+        self.problems = problems
