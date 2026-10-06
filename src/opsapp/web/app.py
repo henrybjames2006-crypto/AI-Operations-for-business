@@ -6,6 +6,7 @@ to show; hiding a button is a convenience, never a control.
 
 from __future__ import annotations
 
+import base64
 import logging
 import secrets
 import uuid
@@ -41,6 +42,8 @@ from ..persistence.models import Tenant, User
 from ..redaction import redact
 from ..workflow import audit_export, measures
 from ..workflow.catalog_import import MAX_BYTES as MAX_IMPORT_BYTES
+from ..workflow.customer_import import MAX_BYTES as MAX_CUSTOMER_BYTES
+from ..workflow.customer_import import TEMPLATE as CUSTOMER_TEMPLATE
 from . import views
 from .hardening import SecurityHeaders, SizeLimit
 from .samples import SAMPLES
@@ -162,7 +165,11 @@ def create_app(
             )
 
     def flash(request: Request, message: str, kind: str = "info") -> None:
-        request.session.setdefault("flash", []).append({"kind": kind, "message": message})
+        # Reassigned, not appended in place: the session is only saved when a key is set.
+        request.session["flash"] = [
+            *request.session.get("flash", []),
+            {"kind": kind, "message": message},
+        ]
 
     def render(
         request: Request,
@@ -850,6 +857,275 @@ def create_app(
             lambda: c.service.approve_pricing_version(user.id, pv_id),
             "/catalog",
             "Pricing version approved. New quotes will use it.",
+        )
+
+    @app.post("/catalog/rules")
+    def add_rule(
+        request: Request,
+        kind: str = Form(""),
+        sku: str = Form(""),
+        min_qty: str = Form(""),
+        percent_off: str = Form(""),
+        amount: str = Form(""),
+        label: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        form = {
+            "sku": sku,
+            "min_qty": min_qty,
+            "percent_off": percent_off,
+            "amount": amount,
+            "label": label,
+        }
+        return act(
+            request,
+            user,
+            lambda: c.firm.add_pricing_rule(user.id, kind, form),
+            "/catalog",
+            lambda n: f"Rule saved in draft pricing version {n}. Approve the draft to use it.",
+        )
+
+    @app.post("/catalog/rules/{position}/remove")
+    def remove_rule(request: Request, position: int, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.remove_pricing_rule(user.id, position),
+            "/catalog",
+            lambda n: f"Rule removed in draft pricing version {n}. Approve the draft to use it.",
+        )
+
+    # ------------------------------------------------------------------ customers
+
+    @app.get("/customers", response_class=HTMLResponse)
+    def customers(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            data = views.customers_view(s, user)
+        return render(request, "customers.html", data, user=user)
+
+    @app.get("/customers/template.csv")
+    def customers_template(request: Request) -> Response:
+        current_user(request)
+        return Response(
+            CUSTOMER_TEMPLATE,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="customers.csv"'},
+        )
+
+    @app.post("/customers")
+    def add_customer(
+        request: Request,
+        name: str = Form(""),
+        other_names: str = Form(""),
+        email_domains: str = Form(""),
+        contact_email: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        try:
+            customer_id = c.firm.save_customer(
+                user.id, None, name, other_names, email_domains, contact_email
+            )
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/customers", status_code=303)
+        flash(request, "Customer added. Now add its sites.", "ok")
+        return RedirectResponse(f"/customers/{customer_id}", status_code=303)
+
+    def customer_preview(request: Request, user: User, ctx: dict[str, Any]) -> Response:
+        with c.read_sf() as s:
+            page = views.customers_view(s, user)
+        return render(request, "customers.html", {**page, **ctx}, status=422, user=user)
+
+    @app.post("/customers/import")
+    async def customers_import(
+        request: Request, file: UploadFile = File(...), csrf: str = Form("")
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        data = await file.read(MAX_CUSTOMER_BYTES + 1)
+        try:
+            checked = c.firm.check_customer_import(user.id, data)
+        except CatalogImportError as exc:
+            return customer_preview(request, user, {"import_problems": exc.problems})
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/customers", status_code=303)
+        return render(
+            request,
+            "customers_preview.html",
+            {
+                **checked,
+                "payload": base64.b64encode(data).decode("ascii"),
+                "filename": file.filename or "",
+            },
+            user=user,
+        )
+
+    @app.post("/customers/import/confirm")
+    def customers_import_confirm(
+        request: Request,
+        payload: str = Form(""),
+        sha256: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        try:
+            data = base64.b64decode(payload, validate=True)
+        except ValueError:
+            flash(request, "The preview was damaged. Upload the file again.", "error")
+            return RedirectResponse("/customers", status_code=303)
+        try:
+            count = c.firm.import_customers(user.id, data, sha256)
+        except CatalogImportError as exc:
+            return customer_preview(request, user, {"import_problems": exc.problems})
+        except NotFound, PermissionDenied:
+            raise
+        except DomainError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/customers", status_code=303)
+        flash(request, f"{count} customers imported.", "ok")
+        return RedirectResponse("/customers", status_code=303)
+
+    @app.get("/customers/{customer_id}", response_class=HTMLResponse)
+    def customer_page(request: Request, customer_id: str) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            data = views.customer_detail(s, user, customer_id)
+        return render(request, "customer.html", data, user=user)
+
+    @app.post("/customers/{customer_id}")
+    def edit_customer(
+        request: Request,
+        customer_id: str,
+        name: str = Form(""),
+        other_names: str = Form(""),
+        email_domains: str = Form(""),
+        contact_email: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.save_customer(
+                user.id, customer_id, name, other_names, email_domains, contact_email
+            ),
+            f"/customers/{customer_id}",
+            "Customer details saved.",
+        )
+
+    @app.post("/customers/{customer_id}/deactivate")
+    def deactivate_customer(request: Request, customer_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.set_customer_active(user.id, customer_id, False),
+            f"/customers/{customer_id}",
+            "Customer deactivated. Its past quotes are unchanged.",
+        )
+
+    @app.post("/customers/{customer_id}/reactivate")
+    def reactivate_customer(request: Request, customer_id: str, csrf: str = Form("")) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.set_customer_active(user.id, customer_id, True),
+            f"/customers/{customer_id}",
+            "Customer reactivated.",
+        )
+
+    @app.post("/customers/{customer_id}/sites")
+    def add_site(
+        request: Request,
+        customer_id: str,
+        label: str = Form(""),
+        address: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.save_site(user.id, customer_id, None, label, address),
+            f"/customers/{customer_id}",
+            "Site added.",
+        )
+
+    @app.post("/customers/{customer_id}/sites/{site_id}")
+    def edit_site(
+        request: Request,
+        customer_id: str,
+        site_id: str,
+        label: str = Form(""),
+        address: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.save_site(user.id, customer_id, site_id, label, address),
+            f"/customers/{customer_id}",
+            "Site saved.",
+        )
+
+    @app.post("/customers/{customer_id}/sites/{site_id}/remove")
+    def remove_site(
+        request: Request, customer_id: str, site_id: str, csrf: str = Form("")
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.remove_site(user.id, site_id),
+            f"/customers/{customer_id}",
+            "Site removed. Requests and quotes that already use it keep it.",
+        )
+
+    # ------------------------------------------------------------------ company
+
+    @app.get("/company", response_class=HTMLResponse)
+    def company(request: Request) -> Response:
+        user = current_user(request)
+        with c.read_sf() as s:
+            data = views.company_view(s, user)
+        return render(request, "company.html", data, user=user)
+
+    @app.post("/company")
+    def company_save(
+        request: Request,
+        name: str = Form(""),
+        timezone: str = Form(""),
+        csrf: str = Form(""),
+    ) -> Response:
+        user = current_user(request)
+        check_csrf(request, csrf)
+        return act(
+            request,
+            user,
+            lambda: c.firm.update_company(user.id, name, timezone),
+            "/company",
+            "Company settings saved.",
         )
 
     @app.get("/simulation", response_class=HTMLResponse)

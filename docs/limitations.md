@@ -36,10 +36,12 @@ production ready** and has not been used with real customers.
 - **Tax is not calculated.** Quotes say so.
 - **Single currency (USD)** and one pricing catalog per tenant.
 - **Inbound email is not connected.** Requests are pasted into a form.
-- **Customer records are seed data.** There is no customer editor. The catalog can be
-  replaced by importing a CSV price list (one draft at a time); there is no editor for
-  single services or pricing rules, and imported versions copy the rules of the current
-  version.
+- **Catalog editing is by file.** Services and prices change by importing a CSV price
+  list (one draft at a time); there is no editor for a single service. Pricing rules have
+  an editor (0.5.0), limited to the three rule types: volume discount, minimum charge and
+  trip fee. Imported versions copy the rules of the current version.
+- **Customers are never deleted**, only deactivated (0.5.0). The customer CSV import adds
+  new customers only; it can't update existing ones.
 
 ## Technical limits
 

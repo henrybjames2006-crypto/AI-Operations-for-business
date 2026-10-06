@@ -131,6 +131,21 @@ secrets. A self-review against the OWASP Top 10 is in
 - **Measurements** are read-only, tenant-scoped, and contain workflow ids, timings and
   outcome words, not request text.
 
+## Firm setup (0.5.0)
+
+- **Permissions:** customers and sites need `manage_customers` (owner, operator); pricing
+  rules need `manage_catalog` and company settings need `manage_company` (owner only).
+  Records are looked up within the user's company, so another company's records give "Not
+  found". Refusals are audited.
+- **Customer CSV import:** limited to 150 KB and 500 rows, all-or-nothing, with formula
+  cells refused as for price lists. The preview saves nothing; the confirm step re-checks
+  the whole file and its SHA-256, and the import is audited with that hash.
+- **No silent mismatches:** active customers can't share a name, other name or email
+  domain, and shared mail domains (gmail.com and similar) are refused, so a request can't
+  be matched to the wrong customer by a domain anyone can use.
+- **`company create`** checks the owner's password like every other password and stores
+  only its hash.
+
 ## Before any pilot with real data (not done)
 
 Done in 0.4.0: real sign-in with a second factor, encrypted backups with a restore check,

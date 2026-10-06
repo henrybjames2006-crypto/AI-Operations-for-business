@@ -19,6 +19,7 @@ from .config import Settings
 from .dispatch.worker import Dispatcher
 from .persistence.db import make_engine, make_read_session_factory, make_session_factory
 from .persistence.models import AIUsage
+from .workflow.firm import FirmService
 from .workflow.service import WorkflowService
 
 
@@ -32,6 +33,7 @@ class Container:
     service: WorkflowService
     adapters: dict[str, ActionAdapter]
     auth: AuthService
+    firm: FirmService
 
     def dispatcher(
         self, worker_id: str = "dispatcher-1", backoff_base_seconds: float = 2.0
@@ -63,7 +65,15 @@ def build(
     )
     adapters: dict[str, ActionAdapter] = dict(make_simulated_adapters(sf, clock))
     return Container(
-        settings, engine, sf, read_sf, clock, service, adapters, AuthService(sf, clock)
+        settings,
+        engine,
+        sf,
+        read_sf,
+        clock,
+        service,
+        adapters,
+        AuthService(sf, clock),
+        FirmService(service),
     )
 
 

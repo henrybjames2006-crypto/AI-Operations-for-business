@@ -20,6 +20,32 @@
   </form>
 </div>
 {% endif %}
+{% if can_manage and rules_target %}
+<div class="panel">
+  <h2>Pricing rules</h2>
+  <p class="small">{% if rules_target.status == 'draft' %}Changes go into <strong>draft pricing version {{ rules_target.version_no }}</strong> below.{% else %}Your first change makes a <strong>draft</strong> copy of pricing version {{ rules_target.version_no }}.{% endif %}
+    Nothing changes for quotes until you approve the draft. A new minimum charge or trip fee replaces the old one; a volume discount replaces one for the same service and quantity. To change a rule, add it again with the new values; use Remove on the draft to drop one.</p>
+  <form method="post" action="/catalog/rules" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="volume_tier">
+    <strong>Volume discount:</strong>
+    <input name="percent_off" placeholder="%" required aria-label="Percent off" size="4"> % off
+    <select name="sku" aria-label="Service">{% for sku, name in rule_skus %}<option value="{{ sku }}">{{ sku }} {{ name }}</option>{% endfor %}</select>
+    at <input name="min_qty" placeholder="qty" required aria-label="Quantity" size="5"> or more
+    <button class="secondary">Save rule</button>
+  </form>
+  <form method="post" action="/catalog/rules" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="minimum_charge">
+    <strong>Minimum charge:</strong> $<input name="amount" placeholder="250.00" required aria-label="Minimum charge" size="8"> for the items on a quote
+    <button class="secondary">Save rule</button>
+  </form>
+  <form method="post" action="/catalog/rules" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="trip_fee">
+    <strong>Trip fee:</strong> $<input name="amount" placeholder="75.00" required aria-label="Trip fee" size="8"> once per quote with on-site work, shown as
+    <input name="label" value="Site visit trip fee" aria-label="Trip fee label" maxlength="80">
+    <button class="secondary">Save rule</button>
+  </form>
+</div>
+{% endif %}
 <div class="panel">
   <h2>Services</h2>
   <table><tr><th>SKU</th><th>Service</th><th>Unit</th><th>Quantity step</th><th>On site</th><th>Description</th></tr>
@@ -34,11 +60,9 @@
   {% for item, e in v.entries %}{% set p = v.pending.get(item.sku) %}<tr><td><code>{{ item.sku }}</code> {{ p.name if p else item.name }}{% if p and not item.active %} <span class="badge s-needs_clarification">new</span>{% elif p and (p.name != item.name or p.keywords != item.keywords or p.unit != item.unit or p.quantity_step != item.quantity_step|string or p.onsite != item.onsite) %} <span class="badge">details change</span>{% endif %}</td><td class="num">{{ e.unit_price|usd }}</td><td class="num">{{ e.min_qty }}</td><td class="num">{{ e.max_qty }}</td></tr>{% endfor %}
   </table>
   <h3>Rules (applied in this order)</h3>
-  <ul>{% for r in v.pv.rules %}<li>
-    {% if r.kind == 'volume_tier' %}Volume tier: {{ r.percent_off }}% off {{ r.sku }} at {{ r.min_qty }} or more
-    {% elif r.kind == 'minimum_charge' %}Minimum charge: ${{ r.amount }} for items (after tiers)
-    {% elif r.kind == 'trip_fee' %}{{ r.label }}: ${{ r.amount }} once per quote with on-site work
-    {% endif %}</li>{% endfor %}
+  <ul>{% for r in v.pv.rules %}<li>{{ describe_rule(r) }}
+    {% if v.pv.status == 'draft' and can_manage %}<form method="post" action="/catalog/rules/{{ loop.index }}/remove" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="danger compact">Remove</button></form>{% endif %}</li>{% else %}<li class="muted">No pricing rules.</li>{% endfor %}
     <li>Rounding: each line to cents, half up. Tax: not calculated.</li></ul>
   {% if v.dropped %}<p class="small"><strong>No longer offered after approval:</strong> {% for sku in v.dropped %}<code>{{ sku }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   {% if v.pv.status == 'draft' and can_manage %}

@@ -102,3 +102,6 @@ input[type=password] { font: inherit; padding: 6px 8px; border: 1px solid var(--
 .secret { font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: .05em;
           background: var(--code); padding: 6px 10px; border-radius: 6px; display: inline-block; }
 .qr { display: block; margin: 10px 0; width: 220px; height: 220px; image-rendering: pixelated; }
+ul.checklist { list-style: none; padding-left: 0; }
+ul.checklist li { padding: 3px 0; }
+ul.checklist li.done { color: var(--ok); }

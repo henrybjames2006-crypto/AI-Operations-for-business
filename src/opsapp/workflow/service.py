@@ -33,6 +33,7 @@ from ..domain.errors import (
     DomainError,
     InvalidTransition,
     PermissionDenied,
+    PricingError,
     StaleApproval,
     ValidationError,
 )
@@ -313,8 +314,14 @@ class WorkflowService:
         return self._run(actor_id, run)
 
     def _context(self, s: Session, tenant_id: str) -> ExtractionContext:
-        customers = s.scalars(select(Customer).where(Customer.tenant_id == tenant_id)).all()
-        sites = s.scalars(select(CustomerSite).where(CustomerSite.tenant_id == tenant_id)).all()
+        customers = s.scalars(
+            select(Customer).where(Customer.tenant_id == tenant_id, Customer.active.is_(True))
+        ).all()
+        sites = s.scalars(
+            select(CustomerSite).where(
+                CustomerSite.tenant_id == tenant_id, CustomerSite.active.is_(True)
+            )
+        ).all()
         items = s.scalars(
             select(CatalogItem).where(
                 CatalogItem.tenant_id == tenant_id, CatalogItem.active.is_(True)
@@ -479,7 +486,9 @@ class WorkflowService:
         mentions: list[str],
     ) -> None:
         customers = s.scalars(
-            select(Customer).where(Customer.tenant_id == wf.tenant_id).order_by(Customer.name)
+            select(Customer)
+            .where(Customer.tenant_id == wf.tenant_id, Customer.active.is_(True))
+            .order_by(Customer.name)
         ).all()
         domain = sender.split("@")[-1] if "@" in sender else ""
         by_domain = [c for c in customers if domain and domain in c.email_domains]
@@ -510,7 +519,7 @@ class WorkflowService:
             scope["recipient_source"] = "From records: customer's contact address on file"
         sites = s.scalars(
             select(CustomerSite)
-            .where(CustomerSite.customer_id == customer.id)
+            .where(CustomerSite.customer_id == customer.id, CustomerSite.active.is_(True))
             .order_by(CustomerSite.label)
         ).all()
         mentioned = [site for site in sites if site.label in scope.get("site_mentions", [])]
@@ -577,7 +586,9 @@ class WorkflowService:
         tenant_id = wf.tenant_id
         if scope.get("customer_id") is None:
             customers = s.scalars(
-                select(Customer).where(Customer.tenant_id == tenant_id).order_by(Customer.name)
+                select(Customer)
+                .where(Customer.tenant_id == tenant_id, Customer.active.is_(True))
+                .order_by(Customer.name)
             ).all()
             mentions = scope.get("customer_mentions", [])
             candidates = [c for c in customers if any(m in mentions for m in [c.name, *c.aliases])]
@@ -622,7 +633,10 @@ class WorkflowService:
         if scope.get("site_id") is None:
             sites = s.scalars(
                 select(CustomerSite)
-                .where(CustomerSite.customer_id == scope["customer_id"])
+                .where(
+                    CustomerSite.customer_id == scope["customer_id"],
+                    CustomerSite.active.is_(True),
+                )
                 .order_by(CustomerSite.label)
             ).all()
             self._ask(
@@ -776,6 +790,8 @@ class WorkflowService:
                 recorded = allowed[value]
                 if q.kind == "choose_customer":
                     customer = get_scoped(s, Customer, value, actor.tenant_id)
+                    if not customer.active:
+                        raise ValidationError("That customer is no longer active.")
                     req = s.get(CustomerRequest, wf.request_id)
                     if req is None:  # a broken invariant, never a user error
                         raise RuntimeError("req is missing")
@@ -783,6 +799,8 @@ class WorkflowService:
                     scope["customer_source"] = f"Operator answer: {customer.name}"
                 else:
                     site = get_scoped(s, CustomerSite, value, actor.tenant_id)
+                    if not site.active:
+                        raise ValidationError("That site is no longer in use.")
                     if site.customer_id != scope.get("customer_id"):
                         raise ValidationError("That site belongs to a different customer.")
                     scope["site_id"] = site.id
@@ -1011,10 +1029,13 @@ class WorkflowService:
                 )
             scope = dict(wf.scope)
             if customer_id and customer_id != scope.get("customer_id"):
-                get_scoped(s, Customer, customer_id, actor.tenant_id)
+                if not get_scoped(s, Customer, customer_id, actor.tenant_id).active:
+                    raise ValidationError("That customer is no longer active.")
                 scope["customer_id"] = customer_id
                 scope["customer_source"] = f"Edited by {actor.display_name}"
             site = get_scoped(s, CustomerSite, site_id, actor.tenant_id)
+            if not site.active and site.id != scope.get("site_id"):
+                raise ValidationError("That site is no longer in use.")
             if site.customer_id != scope["customer_id"]:
                 raise ValidationError("The site does not belong to the customer.")
             if site.id != scope.get("site_id"):
@@ -1695,7 +1716,10 @@ class WorkflowService:
             tenant = s.get(Tenant, actor.tenant_id)
             if tenant is None:  # a broken invariant, never a user error
                 raise RuntimeError("tenant is missing")
-            current = current_pricing_version(s, actor.tenant_id, now)
+            try:
+                current: PricingVersion | None = current_pricing_version(s, actor.tenant_id, now)
+            except PricingError:
+                current = None  # a new company's first price list
             existing = {
                 i.sku: i
                 for i in s.scalars(
@@ -1721,11 +1745,15 @@ class WorkflowService:
                 currency=tenant.currency,
                 status="draft",
                 effective_from=now,
-                rules=list(current.rules),
+                rules=list(current.rules) if current else [],
                 notes=(
                     f"Imported from {name} by {actor.display_name}: {len(parsed.rows)} "
                     f"services ({len(new_skus)} new, {len(dropped)} no longer offered). "
-                    f"Rules copied from version {current.version_no}."
+                    + (
+                        f"Rules copied from version {current.version_no}."
+                        if current
+                        else "First price list: no pricing rules yet."
+                    )
                 ),
                 catalog_changes=[r.catalog_fields() for r in parsed.rows],
             )

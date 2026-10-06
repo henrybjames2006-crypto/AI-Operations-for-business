@@ -27,6 +27,8 @@ class Permission(StrEnum):
     SIMULATION_CONTROLS = "simulation_controls"
     MANAGE_USERS = "manage_users"
     EXPORT_AUDIT = "export_audit"
+    MANAGE_CUSTOMERS = "manage_customers"
+    MANAGE_COMPANY = "manage_company"
 
 
 P = Permission
@@ -48,14 +50,14 @@ _APPROVER = {
 
 MATRIX: dict[Role, frozenset[Permission]] = {
     Role.OWNER: frozenset(Permission),
-    Role.OPERATOR: frozenset({P.VIEW, *_PREPARER}),
+    Role.OPERATOR: frozenset({P.VIEW, P.MANAGE_CUSTOMERS, *_PREPARER}),
     Role.APPROVER: frozenset({P.VIEW, *_APPROVER}),
     Role.VIEWER: frozenset({P.VIEW}),
 }
 
 ROLE_TEXT: dict[Role, str] = {
     Role.OWNER: "Owner/admin: everything, but never approves work they prepared",
-    Role.OPERATOR: "Operator/preparer: intake, clarification, quote preparation",
+    Role.OPERATOR: "Operator/preparer: intake, clarification, quote preparation, customers",
     Role.APPROVER: "Approver: approves or rejects quotes, resolves exceptions",
     Role.VIEWER: "Viewer: read only",
 }

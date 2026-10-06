@@ -1,6 +1,7 @@
 """Command line: ``python -m opsapp <command>``.
 
-Commands: db upgrade | db downgrade | db current | seed | user create | serve | dispatch |
+Commands: db upgrade | db downgrade | db current | seed | company create | user create | serve |
+dispatch |
 eval run | redact | backup | restore | audit verify | audit verify-export | export |
 recompute-quote
 """
@@ -310,6 +311,32 @@ def cmd_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_company(args: argparse.Namespace) -> int:
+    from .domain.errors import DomainError
+
+    settings = load_settings()
+    if not settings.database_path.exists():
+        print("No database yet. Run first: python -m opsapp db upgrade")
+        return 1
+    c = _container()
+    print(
+        f"Creating {args.name!r} with owner {args.owner_name} ({args.owner_email.strip().lower()})."
+        " Choose the owner's password: at least 12 characters. They set up an authenticator "
+        "app the first time they sign in."
+    )
+    password = _ask_secret("Password: ", twice=True)
+    try:
+        c.auth.create_company(args.name, args.timezone, args.owner_name, args.owner_email, password)
+    except DomainError as exc:
+        print(exc)
+        return 1
+    print(f"Company {' '.join(args.name.split())} created, with no services or customers yet.")
+    print("Start the app (python -m opsapp serve), sign in, and follow the setup checklist.")
+    if c.settings.demo_mode:
+        print("Turn OPSAPP_DEMO_MODE off in .env to sign in with it.")
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     if args.action == "verify-export":
         from .verify import verify_audit_export
@@ -388,6 +415,13 @@ def main(argv: list[str] | None = None) -> int:
     rd.add_argument("--out", required=True, help="new folder for the redacted copies")
     rd.add_argument("--names", help="text file with names to hide, one per line")
     rd.set_defaults(fn=cmd_redact)
+    co = sub.add_parser("company", help="create a new, empty company and its first owner")
+    co.add_argument("action", choices=["create"])
+    co.add_argument("name", help="the firm's name, in quotes")
+    co.add_argument("--timezone", required=True, help="for schedule times, e.g. America/Chicago")
+    co.add_argument("--owner-name", required=True, help="the first owner's name")
+    co.add_argument("--owner-email", required=True, help="the first owner's email")
+    co.set_defaults(fn=cmd_company)
     us = sub.add_parser("user", help="create the first owner of a company")
     us.add_argument("action", choices=["create"])
     us.add_argument("--company", required=True, help="company name, as shown in the app")
